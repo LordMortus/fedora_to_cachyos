@@ -60,6 +60,18 @@ export KWIN_USE_OVERLAYS=0
 EOF
 chmod +x ~/.config/plasma-workspace/env/kwin-sunshine.sh
 
+# === FIREWALL: OPEN SUNSHINE PORTS ===
+sudo firewall-cmd --permanent --add-port=47984/tcp
+sudo firewall-cmd --permanent --add-port=47989/tcp
+sudo firewall-cmd --permanent --add-port=47990/tcp
+sudo firewall-cmd --permanent --add-port=48010/tcp
+sudo firewall-cmd --permanent --add-port=47998/udp
+sudo firewall-cmd --permanent --add-port=47999/udp
+sudo firewall-cmd --permanent --add-port=48000/udp
+sudo firewall-cmd --permanent --add-port=48002/udp
+sudo firewall-cmd --permanent --add-port=48010/udp
+sudo firewall-cmd --reload
+
 # === ENABLE SUNSHINE AS USER SERVICE ===
 # === Beta version file name convention ===
 systemctl --user enable --now app-dev.lizardbyte.app.Sunshine
