@@ -34,9 +34,10 @@ sudo grub2-mkconfig -o /boot/grub2/grub.cfg -y
 sudo dnf install kernel-devel kernel-headers gcc make dkms acpid libglvnd-glx libglvnd-opengl libglvnd-devel pkgconfig libxcb egl-wayland -y
 
 #Downlaod Nvidia drivers (.run)
+sudo wget https://us.download.nvidia.com/XFree86/Linux-x86_64/595.71.05/NVIDIA-Linux-x86_64-595.71.05.run -y
 #Make executable
+chmod -x NVIDIA-Linux-x86_64-595.71.05.run
 #run as su
 #Select NO to xconfig utility
 
 #REBOOT NOW
-reboot
