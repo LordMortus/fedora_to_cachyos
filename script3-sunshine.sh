@@ -10,7 +10,7 @@ set -e
 # =============================================================
 
 # === VERIFY CACHYOS KERNEL IS RUNNING ===
-if ! uname -r | grep -q "cachyos"; then
+if ! uname -r | grep -q "cachy"; then
     echo "ERROR: Not running on the CachyOS kernel!"
     echo "Current kernel: $(uname -r)"
     echo "Please reboot and select the CachyOS kernel from GRUB."
