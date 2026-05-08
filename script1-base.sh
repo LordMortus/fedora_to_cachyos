@@ -41,8 +41,8 @@ sudo dnf install -y dnf-plugins-core
 sudo setsebool -P domain_kernel_load_modules on
 
 # === CACHYOS KERNEL ===
-sudo dnf copr enable bieszczaders/kernel-cachyos
-sudo dnf copr enable bieszczaders/kernel-cachyos-addons
+sudo dnf copr enable bieszczaders/kernel-cachyos -y
+sudo dnf copr enable bieszczaders/kernel-cachyos-addons -y
 
 sudo dnf install -y $KERNEL_PKG $KERNEL_DEVEL_PKG
 sudo dnf install -y --allowerasing cachyos-settings scx-manager scx-scheds-git scx-tools-git
