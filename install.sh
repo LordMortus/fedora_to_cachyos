@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 #MAC Address for VM to keep IP
 #BC:24:11:C2:59:9C
 
