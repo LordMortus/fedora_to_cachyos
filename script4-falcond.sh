@@ -15,6 +15,8 @@ if ! uname -r | grep -q "cachy"; then
     exit 1
 fi
 echo "CachyOS kernel confirmed: $(uname -r)"
+KERNEL_PKG=$(cat ~/.cachyos-install-variant 2>/dev/null || echo "unknown")
+echo "Kernel variant: $KERNEL_PKG"
 
 # === DEPENDENCIES ===
 sudo dnf install -y zig git
