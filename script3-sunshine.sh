@@ -61,7 +61,8 @@ EOF
 chmod +x ~/.config/plasma-workspace/env/kwin-sunshine.sh
 
 # === ENABLE SUNSHINE AS USER SERVICE ===
-systemctl --user enable --now sunshine
+# === Beta version file name convention ===
+systemctl --user enable --now app-dev.lizardbyte.app.Sunshine
 
 echo ""
 echo "========================================================"
