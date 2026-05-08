@@ -9,3 +9,7 @@ install, and set things up to use Sunshine with an Nvidia GPU
 
 The script also checks for compatible cpu and installs the appropriate 
 kernel.
+
+One thing to note:
+    At least for my setup, make sure the EFI disk in Proxmox does
+    NOT have pregen keys
