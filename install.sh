@@ -1,44 +1,54 @@
-#!/bin/sh
-#MAC Address for VM to keep IP
-#BC:24:11:C2:59:9C
+#!/bin/bash
+set -e
 
-#DO NOT SWITCH KERNELS UNTIL MENTIONED
-#Stay on default kernel
+# MAC Address for VM to keep IP: BC:24:11:C2:59:9C
+# Stay on default Fedora kernel until reboot step
 
-#Add video card in Proxmox after initial install first
+# == Claude AI Rewrite ===
+# === SYSTEM UPDATE ===
+sudo dnf upgrade --refresh -y
+sudo dnf upgrade -y
+
+# === RPM FUSION ===
+sudo dnf install -y \
+  https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
+  https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
+
+# === COPR TOOLING ===
+sudo dnf install -y dnf-plugins-core
+
+# === SELINUX: allow kernel module loading ===
+sudo setsebool -P domain_kernel_load_modules on
+
+# === CACHYOS KERNEL ===
+sudo dnf copr enable bieszczaders/kernel-cachyos
+sudo dnf copr enable bieszczaders/kernel-cachyos-addons
+
+sudo dnf install -y kernel-cachyos kernel-cachyos-devel-matched
+sudo dnf install -y --allowerasing cachyos-settings scx-manager scx-scheds-git scx-tools-git
 
 sudo dnf upgrade --refresh -y
 sudo dnf upgrade -y
 
-#RPM Fusion commands can be found searching "eneable rpm repositories"
-sudo dnf install https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm -y
-sudo dnf install https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm -y
-sudo dnf install copr-frontend-fedora.noarch -y
-sudo dnf instal copr -y
+# === REBUILD INITRAMFS ===
+CACHY_VER=$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-cachyos | tail -1)
+sudo dracut -f --kver "$CACHY_VER"
 
-# sudo setsebool -P domain_kernel_load_modules on
+# === UPDATE GRUB ===
+sudo grub2-mkconfig -o /boot/grub2/grub.cfg
 
-sudo dnf copr enable bieszczaders/kernel-cachyos -y
-sudo dnf copr enable bieszczaders/kernel-cachyos-addons -y
+# === NVIDIA DEPENDENCIES ===
+sudo dnf install -y kernel-devel kernel-headers gcc make dkms acpid \
+  libglvnd-glx libglvnd-opengl libglvnd-devel pkgconfig libxcb egl-wayland
 
-sudo dnf install kernel-cachyos kernel-cachyos-devel-matched -y
-sudo dnf in cachyos-settings scx-manager scx-scheds-git scx-tools-git --allowerasing -y
-sudo dnf upgrade --refresh -y
-sudo dnf upgrade -y
+# === DOWNLOAD NVIDIA DRIVER ===
+mkdir -p ~/Downloads && cd ~/Downloads
+sudo wget https://us.download.nvidia.com/XFree86/Linux-x86_64/595.71.05/NVIDIA-Linux-x86_64-595.71.05.run
+sudo chmod +x NVIDIA-Linux-x86_64-595.71.05.run
 
-# dnf search kernel-cachyos
-# sudo dnf install <modules>
-
-sudo grub2-mkconfig -o /boot/grub2/grub.cfg -y
-
-sudo dnf install kernel-devel kernel-headers gcc make dkms acpid libglvnd-glx libglvnd-opengl libglvnd-devel pkgconfig libxcb egl-wayland -y
-
-#Downlaod Nvidia drivers (.run)
-cd Downloads
-sudo wget https://us.download.nvidia.com/XFree86/Linux-x86_64/595.71.05/NVIDIA-Linux-x86_64-595.71.05.run -y
-#Make executable
-sudo chmod -x NVIDIA-Linux-x86_64-595.71.05.run
-#run as su
-#Select NO to xconfig utility
-
-#REBOOT NOW
+echo ""
+echo "========================================================"
+echo " Reboot into CachyOS kernel, then run manually:"
+echo " sudo ~/Downloads/NVIDIA-Linux-x86_64-595.71.05.run"
+echo " Select NO to xconfig utility when prompted."
+echo "========================================================"
