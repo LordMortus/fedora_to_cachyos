@@ -57,6 +57,9 @@ sudo dracut -f --kver "$CACHY_VER"
 # === UPDATE GRUB ===
 sudo grub2-mkconfig -o /boot/grub2/grub.cfg
 
+# === Add Cachy tag to check file ===
+echo "$KERNEL_PKG" > ~/.cachyos-install-variant
+
 echo ""
 echo "========================================================"
 echo " SCRIPT 1 COMPLETE"
