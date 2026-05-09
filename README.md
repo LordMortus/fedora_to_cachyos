@@ -6,6 +6,8 @@ version of CachyOS
 
 So here are a few scripts to set up CachyOS on Fedora 44 after a fresh
 install, and set things up to use Sunshine with an Nvidia GPU
+Sunshine is installed as a service and does not need to be added to
+the autostart list.
 
 The script also checks for compatible cpu and installs the appropriate 
 kernel.
