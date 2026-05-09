@@ -1,0 +1,127 @@
+================================================================
+SSH SETUP FOR SUNSHINE 503 ERROR FIX
+Fedora Gaming VM on Proxmox
+================================================================
+
+PROBLEM
+-------
+When Moonlight disconnects from a Sunshine streaming session,
+Sunshine can sometimes lose its display context and return a
+503 error when you try to reconnect. The fix is to restart
+the Sunshine service remotely via SSH without rebooting the VM.
+
+PREVENTION
+----------
+Before relying on this fix, make sure display power management
+is fully disabled on the VM:
+
+  1. Open System Settings in KDE Plasma
+  2. Go to Display and Monitor -> Power Management
+  3. Set all options to "Never"
+  4. Also check Energy Saving settings and disable screen blanking
+
+This alone may prevent the 503 from occurring at all.
+
+================================================================
+SSH SETUP (Windows 10/11)
+================================================================
+
+STEP 1 - Enable SSH on the Fedora VM
+-------------------------------------
+On the VM, open a terminal and run:
+
+  sudo dnf install -y openssh-server
+  sudo systemctl enable --now sshd
+  passwd
+
+  When prompted by passwd, set a password for your user account.
+  This is needed for the initial SSH connection.
+
+STEP 2 - Generate an SSH keypair on your Windows machine
+---------------------------------------------------------
+Open PowerShell and run:
+
+  ssh-keygen -t ed25519
+
+  When prompted:
+  - "Enter file in which to save the key": press Enter (use default)
+  - "Enter passphrase": press Enter (leave EMPTY - do not set one)
+  - "Enter same passphrase again": press Enter again
+
+  IMPORTANT: Leaving the passphrase empty is intentional for a
+  local network setup. The passphrase would act like a password
+  and defeat the purpose of passwordless SSH. The security model
+  relies on keeping the private key file safe on your Windows
+  machine instead.
+
+  Your public key will be saved at:
+  C:\Users\<YourWindowsUsername>\.ssh\id_ed25519.pub
+
+STEP 3 - Copy the public key to the VM
+---------------------------------------
+NOTE: ssh-copy-id is not available on Windows 10/11 by default.
+Use this manual workaround instead:
+
+  Option A - Via a network share (easiest):
+  1. Copy id_ed25519.pub from C:\Users\<YourWindowsUsername>\.ssh\
+     to a shared folder the VM can access
+  2. On the VM terminal, run:
+       mkdir -p ~/.ssh
+       chmod 700 ~/.ssh
+       cat /path/to/share/id_ed25519.pub >> ~/.ssh/authorized_keys
+       chmod 600 ~/.ssh/authorized_keys
+
+  Option B - Manually copy the key contents:
+  1. In PowerShell, run:
+       type $env:USERPROFILE\.ssh\id_ed25519.pub
+  2. Copy the entire output (starts with ssh-ed25519)
+  3. On the VM terminal, run:
+       mkdir -p ~/.ssh
+       chmod 700 ~/.ssh
+       echo "PASTE KEY HERE" >> ~/.ssh/authorized_keys
+       chmod 600 ~/.ssh/authorized_keys
+
+  Replace PASTE KEY HERE with the full key string including
+  the ssh-ed25519 prefix and everything after it.
+
+STEP 4 - Test the connection
+-----------------------------
+In PowerShell on your Windows machine:
+
+  ssh <user>@<vm-ip>
+
+  Replace <user> with your Fedora username (e.g. dan)
+  Replace <vm-ip> with the VM's IP address (e.g. 192.168.1.100)
+
+  You should connect without being asked for a password.
+  If it still asks for a password, the authorized_keys file
+  permissions may be wrong - recheck Step 3.
+
+STEP 5 - Find your VM's IP address
+------------------------------------
+On the VM terminal:
+
+  ip addr show | grep inet
+
+  Look for a line like: inet 192.168.1.xxx
+  This is your VM's local network IP address.
+
+  TIP: Set a static IP or DHCP reservation in your router
+  using the VM's MAC address so the IP never changes.
+  MAC Address: BC:24:11:C2:59:9C
+
+================================================================
+FIXING THE 503 ERROR VIA SSH
+================================================================
+
+Once SSH is set up, use the restart-sunshine.bat file to fix
+the 503 error with a single click from your Windows desktop.
+
+Or run this command manually in PowerShell:
+
+  ssh <user>@<vm-ip> "systemctl --user restart app-dev.lizardbyte.app.Sunshine"
+
+After the service restarts (takes 2-3 seconds), try connecting
+from Moonlight again.
+
+================================================================
