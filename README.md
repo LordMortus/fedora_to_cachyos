@@ -1,7 +1,7 @@
 Attempted to install CachyOS kernel onto a Fedora 44 VM under Proxmox.
 
 Using ClaudAI to help make adjustments and see where things went wrong
-I/we found out it my Proxmox CPU isn't capable of running the non lts 
+I/we found out my Proxmox CPU isn't capable of running the non lts 
 version of CachyOS
 
 So here are a few scripts to set up CachyOS on Fedora 44 after a fresh
