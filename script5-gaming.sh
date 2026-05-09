@@ -29,11 +29,15 @@ sudo dnf install -y steam
 # GUI tool for managing Proton-GE and other compatibility layers
 # Installed as a Flatpak since that's the recommended method
 flatpak install -y flathub net.davidotek.pupgui2
+# === Safety check just in case, probably not needed.
+sudo flatpak override --system net.davidotek.pupgui2 --share=network
 
 # === HEROIC GAMES LAUNCHER ===
 # Alternative to Lutris for Epic, GOG, and Amazon games
 # Flatpak is the recommended install method
 flatpak install -y flathub com.heroicgameslauncher.hgl
+# === You might need to log out of your account and back in, then close/reopen Heroic
+sudo flatpak override --system com.heroicgameslauncher.hgl --share=network
 
 # === MANGOHUD ===
 # In-game performance overlay (FPS, CPU, GPU, temps etc)
