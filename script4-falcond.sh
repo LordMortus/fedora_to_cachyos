@@ -37,8 +37,7 @@ sudo install -Dm644 debian/falcond.service /etc/systemd/system/falcond.service
 cd ~/Downloads
 git clone https://github.com/PikaOS-Linux/falcond-profiles.git
 sudo mkdir -p /usr/share/falcond/profiles
-sudo cp -r falcond-profiles/profiles/* /usr/share/falcond/profiles/
-sudo cp falcond-profiles/system.conf /usr/share/falcond/system.conf
+sudo cp -r ~/Downloads/falcond-profiles/usr/share/falcond/* /usr/share/falcond/
 
 # === ENABLE AND START ===
 sudo systemctl daemon-reload
