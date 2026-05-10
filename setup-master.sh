@@ -382,30 +382,45 @@ if [ "$STAGE" = "4" ]; then
     cd falcond/falcond
     rm -rf ~/.cache/zig
 
-    # Attempt build, catch hash mismatch errors
+    # Build with automatic hash mismatch fix
     if ! zig build -Doptimize=ReleaseFast 2>~/Downloads/falcond-build.log; then
         if grep -q "hash mismatch" ~/Downloads/falcond-build.log; then
-            echo ""
-            echo "========================================================"
-            echo " Hash mismatch detected in falcond dependencies."
-            echo ""
-            echo " The error log is at: ~/Downloads/falcond-build.log"
-            echo ""
-            echo " To fix manually:"
-            echo "  1. Run: cat ~/Downloads/falcond-build.log"
-            echo "  2. Find the line starting with 'error: hash mismatch'"
-            echo "  3. Note the correct hash shown after"
-            echo "     'but the fetched package has'"
-            echo "  4. Edit: nano ~/Downloads/falcond/falcond/build.zig.zon"
-            echo "  5. Replace the old hash with the correct one"
-            echo "  6. Re-run this script to continue from Stage 4"
-            echo "========================================================"
+            echo "Hash mismatch detected - attempting automatic fix..."
+
+            # Extract the correct hash from the error message
+            CORRECT_HASH=$(grep "but the fetched package has" ~/Downloads/falcond-build.log | \
+                grep -o '[A-Za-z0-9_$-]\{40,\}' | tail -1)
+
+            if [ -n "$CORRECT_HASH" ]; then
+                echo "Correct hash found: $CORRECT_HASH"
+
+                # Extract the old hash from build.zig.zon
+                OLD_HASH=$(grep -o '[A-Za-z0-9_$-]\{40,\}' build.zig.zon | head -1)
+
+                # Replace old hash with correct one
+                sed -i "s/$OLD_HASH/$CORRECT_HASH/" build.zig.zon
+                echo "Hash updated, retrying build..."
+
+                # Second attempt with fixed hash
+                if ! zig build -Doptimize=ReleaseFast 2>>~/Downloads/falcond-build.log; then
+                    echo "Build failed after automatic hash fix."
+                    echo "Check the log: cat ~/Downloads/falcond-build.log"
+                    set_stage 4
+                    exit 1
+                fi
+                echo "Build succeeded after automatic hash fix!"
+            else
+                echo "Could not extract correct hash automatically."
+                echo "Manual fix required - see ~/Downloads/falcond-build.log"
+                set_stage 4
+                exit 1
+            fi
         else
             echo "Build failed for unknown reason."
             echo "Check the log: cat ~/Downloads/falcond-build.log"
+            set_stage 4
+            exit 1
         fi
-        set_stage 4
-        exit 1
     fi
 
     sudo install -Dm755 zig-out/bin/falcond /usr/bin/falcond

@@ -2,9 +2,9 @@
 set -e
 
 # =============================================================
-# SCRIPT 4 OF 4 - falcond Performance Daemon
+# SCRIPT 4 OF 5 - falcond Performance Daemon
 # Run this on the CachyOS kernel AFTER rebooting from script 3.
-# This is the final script - no reboot required after this one.
+# No reboot required after this script.
 # =============================================================
 
 # === VERIFY CACHYOS KERNEL IS RUNNING ===
@@ -15,29 +15,73 @@ if ! uname -r | grep -q "cachy"; then
     exit 1
 fi
 echo "CachyOS kernel confirmed: $(uname -r)"
-KERNEL_PKG=$(cat ~/.cachyos-install-variant 2>/dev/null || echo "unknown")
-echo "Kernel variant: $KERNEL_PKG"
 
 # === DEPENDENCIES ===
 sudo dnf install -y zig git
 
-# === CLONE AND BUILD FALCOND ===
+# === CLONE OR UPDATE FALCOND ===
 cd ~/Downloads
-git clone https://git.pika-os.com/general-packages/falcond.git
+if [ -d "falcond" ]; then
+    git -C falcond pull
+else
+    git clone https://git.pika-os.com/general-packages/falcond.git
+fi
+
 cd falcond/falcond
+rm -rf ~/.cache/zig
 
-# Build optimized release binary
-zig build -Doptimize=ReleaseFast
+# === BUILD WITH AUTOMATIC HASH MISMATCH FIX ===
+if ! zig build -Doptimize=ReleaseFast 2>~/Downloads/falcond-build.log; then
+    if grep -q "hash mismatch" ~/Downloads/falcond-build.log; then
+        echo "Hash mismatch detected - attempting automatic fix..."
 
-# Install binary and systemd service
+        # Extract the correct hash from the error message
+        CORRECT_HASH=$(grep "but the fetched package has" ~/Downloads/falcond-build.log | \
+            grep -o '[A-Za-z0-9_$-]\{40,\}' | tail -1)
+
+        if [ -n "$CORRECT_HASH" ]; then
+            echo "Correct hash found: $CORRECT_HASH"
+
+            # Extract the old hash from build.zig.zon
+            OLD_HASH=$(grep -o '[A-Za-z0-9_$-]\{40,\}' build.zig.zon | head -1)
+
+            # Replace old hash with correct one
+            sed -i "s/$OLD_HASH/$CORRECT_HASH/" build.zig.zon
+            echo "Hash updated, retrying build..."
+
+            # Second attempt with fixed hash
+            if ! zig build -Doptimize=ReleaseFast 2>>~/Downloads/falcond-build.log; then
+                echo "Build failed after automatic hash fix."
+                echo "Check the log: cat ~/Downloads/falcond-build.log"
+                exit 1
+            fi
+            echo "Build succeeded after automatic hash fix!"
+        else
+            echo "Could not extract correct hash automatically."
+            echo "Manual fix required - see ~/Downloads/falcond-build.log"
+            exit 1
+        fi
+    else
+        echo "Build failed for unknown reason."
+        echo "Check the log: cat ~/Downloads/falcond-build.log"
+        exit 1
+    fi
+fi
+
+# === INSTALL BINARY AND SERVICE ===
 sudo install -Dm755 zig-out/bin/falcond /usr/bin/falcond
 sudo install -Dm644 debian/falcond.service /etc/systemd/system/falcond.service
 
 # === INSTALL PROFILES ===
 cd ~/Downloads
-git clone https://github.com/PikaOS-Linux/falcond-profiles.git
+if [ -d "falcond-profiles" ]; then
+    git -C falcond-profiles pull
+else
+    git clone https://github.com/PikaOS-Linux/falcond-profiles.git
+fi
+
 sudo mkdir -p /usr/share/falcond/profiles
-sudo cp -r ~/Downloads/falcond-profiles/usr/share/falcond/* /usr/share/falcond/
+sudo cp -r falcond-profiles/usr/share/falcond/* /usr/share/falcond/
 
 # === ENABLE AND START ===
 sudo systemctl daemon-reload
@@ -46,21 +90,9 @@ sudo systemctl status falcond --no-pager
 
 echo ""
 echo "========================================================"
-echo " SCRIPT 4 COMPLETE - Setup finished!"
+echo " SCRIPT 4 COMPLETE"
 echo ""
 echo " falcond is installed and running."
 echo " Config auto-generated at /etc/falcond/config.conf"
 echo " Check status: sudo systemctl status falcond"
-echo ""
-echo " Your system is ready for game streaming."
-echo " Connect via Moonlight to: https://localhost:47990"
-echo ""
-echo " OPTIONAL: Install the falcond GUI"
-echo "   sudo dnf install -y libadwaita-devel lua-devel meson ninja-build"
-echo "   cd ~/Downloads"
-echo "   git clone https://git.pika-os.com/custom-gui-packages/falcond-gui.git"
-echo "   cd falcond-gui"
-echo "   meson setup build"
-echo "   ninja -C build"
-echo "   sudo ninja -C build install"
 echo "========================================================"
