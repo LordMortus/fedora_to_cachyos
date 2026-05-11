@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# === ROOT CHECK ===
+if [ "$EUID" -eq 0 ]; then
+    echo "ERROR: Do not run this script as root!"
+    echo "Run as your normal user account with sudo available."
+    exit 1
+fi
+
 # =============================================================
 # SCRIPT 2 OF 4 - NVIDIA Driver
 # Run this on the CachyOS kernel AFTER rebooting from script 1.
@@ -10,15 +17,13 @@ set -e
 # =============================================================
 
 # === VERIFY CACHYOS KERNEL IS RUNNING ===
-if ! uname -r | grep -q "cachy"; then
+if ! uname -r | grep -q "cachyos"; then
     echo "ERROR: Not running on the CachyOS kernel!"
     echo "Current kernel: $(uname -r)"
     echo "Please reboot and select the CachyOS kernel from GRUB."
     exit 1
 fi
 echo "CachyOS kernel confirmed: $(uname -r)"
-KERNEL_PKG=$(cat ~/.cachyos-install-variant 2>/dev/null || echo "unknown")
-echo "Kernel variant: $KERNEL_PKG"
 
 # === NVIDIA DEPENDENCIES ===
 sudo dnf install -y kernel-devel kernel-headers gcc make dkms acpid \

@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# === ROOT CHECK ===
+if [ "$EUID" -eq 0 ]; then
+    echo "ERROR: Do not run this script as root!"
+    echo "Run as your normal user account with sudo available."
+    exit 1
+fi
+
 # =============================================================
 # SCRIPT 1 OF 4 - Base Setup & CachyOS Kernel
 # Run this first, on the default Fedora kernel.
@@ -41,8 +48,8 @@ sudo dnf install -y dnf-plugins-core
 sudo setsebool -P domain_kernel_load_modules on
 
 # === CACHYOS KERNEL ===
-sudo dnf copr enable bieszczaders/kernel-cachyos -y
-sudo dnf copr enable bieszczaders/kernel-cachyos-addons -y
+sudo dnf copr enable bieszczaders/kernel-cachyos
+sudo dnf copr enable bieszczaders/kernel-cachyos-addons
 
 sudo dnf install -y $KERNEL_PKG $KERNEL_DEVEL_PKG
 sudo dnf install -y --allowerasing cachyos-settings scx-manager scx-scheds-git scx-tools-git
@@ -56,9 +63,6 @@ sudo dracut -f --kver "$CACHY_VER"
 
 # === UPDATE GRUB ===
 sudo grub2-mkconfig -o /boot/grub2/grub.cfg
-
-# === Add Cachy tag to check file ===
-echo "$KERNEL_PKG" > ~/.cachyos-install-variant
 
 echo ""
 echo "========================================================"

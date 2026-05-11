@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# === ROOT CHECK ===
+if [ "$EUID" -eq 0 ]; then
+    echo "ERROR: Do not run this script as root!"
+    echo "Run as your normal user account with sudo available."
+    exit 1
+fi
+
 # =============================================================
 # SCRIPT 6 - NFS and Samba Network Share Mounter
 # Sets up permanent mounts via fstab (mount on boot)
