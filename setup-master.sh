@@ -343,6 +343,17 @@ EOF
     sudo firewall-cmd --permanent --add-port=48010/udp
     sudo firewall-cmd --reload
 
+    # Disable screen lock and power management
+    # Prevents 503 errors by ensuring Sunshine always has
+    # an active display to capture regardless of idle time
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock false
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockOnResume false
+    kwriteconfig6 --file powermanagementprofilesrc --group "AC" --group "DPMSControl" --key idleTime 0
+    kwriteconfig6 --file powermanagementprofilesrc --group "AC" --group "DPMSControl" --key lockBeforeSleep false
+    kwriteconfig6 --file powermanagementprofilesrc --group "AC" --group "Display" --key turnOffDisplayIdleTimeEnabled false
+    kwriteconfig6 --file powermanagementprofilesrc --group "AC" --group "Display" --key dimDisplayIdleTimeEnabled false
+    qdbus6 org.kde.KWin /org/kde/KWin reconfigure 2>/dev/null || true
+
     systemctl --user enable --now app-dev.lizardbyte.app.Sunshine
 
     set_stage 4

@@ -2,7 +2,7 @@
 set -e
 
 # =============================================================
-# SCRIPT 3 OF 4 - Sunshine Game Streaming Host
+# SCRIPT 3 OF 5 - Sunshine Game Streaming Host
 # Run this on the CachyOS kernel AFTER rebooting from script 2.
 # Verify NVIDIA drivers are loaded before continuing:
 #   nvidia-smi   (should show your GPU)
@@ -17,8 +17,6 @@ if ! uname -r | grep -q "cachy"; then
     exit 1
 fi
 echo "CachyOS kernel confirmed: $(uname -r)"
-KERNEL_PKG=$(cat ~/.cachyos-install-variant 2>/dev/null || echo "unknown")
-echo "Kernel variant: $KERNEL_PKG"
 
 # === VERIFY NVIDIA DRIVER IS LOADED ===
 if ! nvidia-smi &>/dev/null; then
@@ -72,8 +70,28 @@ sudo firewall-cmd --permanent --add-port=48002/udp
 sudo firewall-cmd --permanent --add-port=48010/udp
 sudo firewall-cmd --reload
 
+# === DISABLE SCREEN LOCK AND POWER MANAGEMENT ===
+# Prevents 503 errors by ensuring Sunshine always has
+# an active display to capture regardless of idle time
+
+# Disable screen lock
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock false
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockOnResume false
+
+# Disable display power management
+kwriteconfig6 --file powermanagementprofilesrc --group "AC" --group "DPMSControl" --key idleTime 0
+kwriteconfig6 --file powermanagementprofilesrc --group "AC" --group "DPMSControl" --key lockBeforeSleep false
+
+# Disable screen blanking
+kwriteconfig6 --file powermanagementprofilesrc --group "AC" --group "Display" --key turnOffDisplayIdleTimeEnabled false
+
+# Disable screen energy saving
+kwriteconfig6 --file powermanagementprofilesrc --group "AC" --group "Display" --key dimDisplayIdleTimeEnabled false
+
+# Apply changes without needing a reboot
+qdbus6 org.kde.KWin /org/kde/KWin reconfigure 2>/dev/null || true
+
 # === ENABLE SUNSHINE AS USER SERVICE ===
-# === Beta version file name convention ===
 systemctl --user enable --now app-dev.lizardbyte.app.Sunshine
 
 echo ""
@@ -96,6 +114,7 @@ echo " The following require a reboot to take effect:"
 echo "  - input group membership (mouse/keyboard)"
 echo "  - nvidia_drm.modeset=1 (black screen fix)"
 echo "  - KWIN_USE_OVERLAYS=0 (window flicker fix)"
+echo "  - Screen lock and power management settings"
 echo ""
 echo " If streaming breaks after a future 'dnf upgrade',"
 echo " the post-transaction hook restores setcap automatically."
