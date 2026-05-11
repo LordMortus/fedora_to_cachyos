@@ -15,6 +15,11 @@ the autostart list, although you will need to add Steam to it.
 The script also checks for compatible cpu and installs the appropriate 
 kernel.
 
+Added to script3 and master: Power management settings
+You should no longer get 503 errors.
+So only only need the seperate script if something else happens.
+    Let me know if you encounter any errors
+
 One thing to note:
     At least for my setup, make sure the EFI disk in Proxmox does
     NOT have pregen keys
