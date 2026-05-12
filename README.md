@@ -11,6 +11,8 @@ version of CachyOS
 So here are a few scripts to set up CachyOS on Fedora 44 after a fresh
 install, and set things up to use Sunshine with an Nvidia GPU
 
+Make sure the EFI disk in Proxmox does NOT have pregen keys
+
 These scripts assume you are using KDE Plasma - Wayland
 
 Sunshine is installed as a service and does not need to be added to
@@ -23,7 +25,3 @@ Added to script3 and master: Power management settings
 You should no longer get 503 errors.
 So only only need the seperate script if something else happens.
     Let me know if you encounter any errors
-
-One thing to note:
-    At least for my setup, make sure the EFI disk in Proxmox does
-    NOT have pregen keys
