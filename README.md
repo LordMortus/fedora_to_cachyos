@@ -1,3 +1,7 @@
+This is a Work In Progress!!!
+Things may break here and there..
+As I find them myself, I will work to fix them.
+
 Attempted to install CachyOS kernel onto a Fedora 44 VM under Proxmox.
 
 Using ClaudAI to help make adjustments and see where things went wrong
