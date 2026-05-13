@@ -31,10 +31,28 @@ set_stage() {
     echo "$1" > "$STAGE_FILE"
 }
 
+# Detect if running interactively or from systemd service
+if [ -t 0 ]; then
+    INTERACTIVE=true
+else
+    INTERACTIVE=false
+    # Log file for service mode output
+    LOG_FILE="$HOME/setup-resume.log"
+    exec > >(tee -a "$LOG_FILE") 2>&1
+    echo ""
+    echo "=== Service auto-resume: $(date) ==="
+fi
+
 confirm() {
     local MSG="$1"
-    read -p "${MSG} (yes/no): " REPLY
-    [ "$REPLY" = "yes" ]
+    if [ "$INTERACTIVE" = true ]; then
+        read -p "${MSG} (yes/no): " REPLY
+        [ "$REPLY" = "yes" ]
+    else
+        # Auto-confirm in service mode
+        echo "${MSG} (yes/no): yes (auto)"
+        return 0
+    fi
 }
 
 confirm_reboot() {
@@ -42,18 +60,25 @@ confirm_reboot() {
     echo "--------------------------------------------------------"
     echo " A reboot is required before continuing to the next stage."
     echo "--------------------------------------------------------"
-    if confirm "Reboot now?"; then
-        echo "Rebooting..."
-        sudo reboot
+    if [ "$INTERACTIVE" = true ]; then
+        if confirm "Reboot now?"; then
+            echo "Rebooting..."
+            sudo reboot
+        else
+            echo "Please reboot manually when ready, then re-run this script."
+            exit 0
+        fi
     else
-        echo "Please reboot manually when ready, then re-run this script."
-        exit 0
+        echo "Auto-rebooting in 10 seconds... (check ~/setup-resume.log for details)"
+        sleep 10
+        sudo reboot
     fi
 }
 
 install_resume_service() {
     # Creates a user-level systemd service that runs after login
     # Waits for graphical session to be fully established before running
+    # Runs non-interactively and logs to ~/setup-resume.log
     mkdir -p ~/.config/systemd/user/
     tee "$SERVICE_FILE" > /dev/null << EOF
 [Unit]
@@ -64,10 +89,8 @@ Requires=graphical-session.target
 [Service]
 Type=oneshot
 ExecStart=/bin/bash ${SCRIPT_PATH}
-StandardInput=tty
-TTYPath=/dev/tty2
-StandardOutput=tty
-StandardError=tty
+StandardOutput=append:${HOME}/setup-resume.log
+StandardError=append:${HOME}/setup-resume.log
 
 [Install]
 WantedBy=graphical-session.target
@@ -180,9 +203,11 @@ if [ "$STAGE" = "0" ]; then
     echo "  5 - Gaming Applications"
     echo "========================================================"
     echo ""
-    if ! confirm "Ready to begin setup?"; then
-        echo "Exiting. Run this script again when ready."
-        exit 0
+    if [ "$INTERACTIVE" = true ]; then
+        if ! confirm "Ready to begin setup?"; then
+            echo "Exiting. Run this script again when ready."
+            exit 0
+        fi
     fi
     install_resume_service
     set_stage 1
@@ -195,9 +220,11 @@ fi
 
 if [ "$STAGE" = "1" ]; then
     show_stage_summary 1
-    if ! confirm "Run Stage 1 now?"; then
-        echo "Exiting. Run this script again when ready."
-        exit 0
+    if [ "$INTERACTIVE" = true ]; then
+        if ! confirm "Run Stage 1 now?"; then
+            echo "Exiting. Run this script again when ready."
+            exit 0
+        fi
     fi
 
     echo ""
@@ -230,8 +257,8 @@ if [ "$STAGE" = "1" ]; then
     sudo dnf install -y dnf-plugins-core
     sudo setsebool -P domain_kernel_load_modules on
 
-    sudo dnf copr enable bieszczaders/kernel-cachyos
-    sudo dnf copr enable bieszczaders/kernel-cachyos-addons
+    echo "y" | sudo dnf copr enable bieszczaders/kernel-cachyos
+    echo "y" | sudo dnf copr enable bieszczaders/kernel-cachyos-addons
 
     sudo dnf install -y $KERNEL_PKG $KERNEL_DEVEL_PKG
     sudo dnf install -y --allowerasing cachyos-settings scx-manager scx-scheds-git scx-tools-git
@@ -277,9 +304,11 @@ if [ "$STAGE" = "2" ]; then
     fi
     echo "CachyOS kernel confirmed: $(uname -r)"
 
-    if ! confirm "Run Stage 2 now?"; then
-        echo "Exiting. Run this script again when ready."
-        exit 0
+    if [ "$INTERACTIVE" = true ]; then
+        if ! confirm "Run Stage 2 now?"; then
+            echo "Exiting. Run this script again when ready."
+            exit 0
+        fi
     fi
 
     sudo dnf install -y kernel-devel kernel-headers gcc make dkms acpid \
@@ -291,18 +320,27 @@ if [ "$STAGE" = "2" ]; then
 
     echo ""
     echo "========================================================"
-    echo " Run the NVIDIA installer now:"
-    echo "   sudo ~/Downloads/NVIDIA-Linux-x86_64-595.71.05.run"
-    echo " Select NO to xconfig utility when prompted."
+    echo " When prompted by the NVIDIA installer:"
+    echo "   - Select NO to the xconfig utility"
+    echo ""
+    echo " NOTE: If you have not yet enabled GPU passthrough in"
+    echo " Proxmox, do so before Stage 3. Sunshine requires the GPU."
     echo "========================================================"
-    read -p "Press Enter when the NVIDIA installer has finished..."
+    echo ""
+    if [ "$INTERACTIVE" = true ]; then
+        read -p "Press Enter to launch the NVIDIA installer..."
+        sudo ~/Downloads/NVIDIA-Linux-x86_64-595.71.05.run
+    else
+        echo "NOTICE: NVIDIA installer requires manual intervention."
+        echo "Please run manually then re-run this script:"
+        echo "  sudo ~/Downloads/NVIDIA-Linux-x86_64-595.71.05.run"
+        echo "  ./setup-master.sh"
+        exit 0
+    fi
 
     set_stage 3
     echo ""
     echo "Stage 2 complete!"
-    echo ""
-    echo "NOTE: If you have not yet enabled GPU passthrough in Proxmox,"
-    echo "do so before continuing to Stage 3. Sunshine requires the GPU."
     confirm_reboot
 fi
 
@@ -325,13 +363,15 @@ if [ "$STAGE" = "3" ]; then
     fi
     echo "CachyOS kernel and NVIDIA driver confirmed."
 
-    if ! confirm "Run Stage 3 now?"; then
-        echo "Exiting. Run this script again when ready."
-        exit 0
+    if [ "$INTERACTIVE" = true ]; then
+        if ! confirm "Run Stage 3 now?"; then
+            echo "Exiting. Run this script again when ready."
+            exit 0
+        fi
     fi
 
     sudo dnf install -y python3-dnf-plugin-post-transaction-actions
-    sudo dnf copr enable lizardbyte/beta
+    echo "y" | sudo dnf copr enable lizardbyte/beta
     sudo dnf install -y Sunshine
 
     sudo setcap cap_sys_admin+p $(readlink -f $(which sunshine))
@@ -394,9 +434,11 @@ if [ "$STAGE" = "4" ]; then
         exit 1
     fi
 
-    if ! confirm "Run Stage 4 now?"; then
-        echo "Exiting. Run this script again when ready."
-        exit 0
+    if [ "$INTERACTIVE" = true ]; then
+        if ! confirm "Run Stage 4 now?"; then
+            echo "Exiting. Run this script again when ready."
+            exit 0
+        fi
     fi
 
     sudo dnf install -y zig git
@@ -483,9 +525,11 @@ fi
 if [ "$STAGE" = "5" ]; then
     show_stage_summary 5
 
-    if ! confirm "Run Stage 5 now?"; then
-        echo "Exiting. Run this script again when ready."
-        exit 0
+    if [ "$INTERACTIVE" = true ]; then
+        if ! confirm "Run Stage 5 now?"; then
+            echo "Exiting. Run this script again when ready."
+            exit 0
+        fi
     fi
 
     sudo dnf install -y flatpak
