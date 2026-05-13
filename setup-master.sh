@@ -19,9 +19,7 @@ fi
 STAGE_FILE="$HOME/.setup-stage"
 SCRIPT_PATH="$(realpath "$0")"
 SERVICE_NAME="vm-setup-resume"
-SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-CURRENT_USER="$USER"
-CURRENT_HOME="$HOME"
+SERVICE_FILE="$HOME/.config/systemd/user/${SERVICE_NAME}.service"
 
 # === HELPER FUNCTIONS ===
 
@@ -54,36 +52,36 @@ confirm_reboot() {
 }
 
 install_resume_service() {
-    # Creates a systemd service that re-runs this script after reboot
-    sudo tee "$SERVICE_FILE" > /dev/null << EOF
+    # Creates a user-level systemd service that runs after login
+    # Waits for graphical session to be fully established before running
+    mkdir -p ~/.config/systemd/user/
+    tee "$SERVICE_FILE" > /dev/null << EOF
 [Unit]
 Description=VM Setup Resume Service
-After=network.target graphical.target
-After=display-manager.service
+After=graphical-session.target
+Requires=graphical-session.target
 
 [Service]
 Type=oneshot
-User=${CURRENT_USER}
-Environment=HOME=${CURRENT_HOME}
 ExecStart=/bin/bash ${SCRIPT_PATH}
 StandardInput=tty
-TTYPath=/dev/tty1
+TTYPath=/dev/tty2
 StandardOutput=tty
 StandardError=tty
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical-session.target
 EOF
-    sudo systemctl daemon-reload
-    sudo systemctl enable "$SERVICE_NAME"
+    systemctl --user daemon-reload
+    systemctl --user enable "$SERVICE_NAME"
 }
 
 remove_resume_service() {
-    # Removes the systemd service once setup is complete
+    # Removes the user service once setup is complete
     if [ -f "$SERVICE_FILE" ]; then
-        sudo systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-        sudo rm -f "$SERVICE_FILE"
-        sudo systemctl daemon-reload
+        systemctl --user disable "$SERVICE_NAME" 2>/dev/null || true
+        rm -f "$SERVICE_FILE"
+        systemctl --user daemon-reload
     fi
 }
 
@@ -245,6 +243,17 @@ if [ "$STAGE" = "1" ]; then
     sudo dracut -f --kver "$CACHY_VER"
     sudo grub2-mkconfig -o /boot/grub2/grub.cfg
 
+    # Akonadi fix - mask if KDE PIM not installed
+    if ! rpm -q akonadi-server &>/dev/null; then
+        echo "KDE PIM not installed - masking Akonadi to prevent crashes..."
+        akonadictl stop 2>/dev/null || true
+        rm -rf ~/.local/share/akonadi/
+        systemctl --user mask akonadi.service
+        systemctl --user mask akonadi.socket
+    else
+        echo "KDE PIM detected - leaving Akonadi enabled."
+    fi
+
     set_stage 2
     echo ""
     echo "Stage 1 complete! Kernel installed: $KERNEL_PKG"
@@ -291,6 +300,9 @@ if [ "$STAGE" = "2" ]; then
     set_stage 3
     echo ""
     echo "Stage 2 complete!"
+    echo ""
+    echo "NOTE: If you have not yet enabled GPU passthrough in Proxmox,"
+    echo "do so before continuing to Stage 3. Sunshine requires the GPU."
     confirm_reboot
 fi
 
