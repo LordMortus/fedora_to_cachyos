@@ -17,7 +17,7 @@ fi
 # =============================================================
 
 # === VERIFY CACHYOS KERNEL IS RUNNING ===
-if ! uname -r | grep -q "cachyos"; then
+if ! uname -r | grep -q "cachy"; then
     echo "ERROR: Not running on the CachyOS kernel!"
     echo "Current kernel: $(uname -r)"
     echo "Please reboot and select the CachyOS kernel from GRUB."
@@ -38,12 +38,15 @@ echo ""
 echo "========================================================"
 echo " SCRIPT 2 COMPLETE"
 echo ""
-echo " NEXT STEP: Run the NVIDIA installer manually now:"
-echo "   sudo ~/Downloads/NVIDIA-Linux-x86_64-595.71.05.run"
-echo ""
-echo " When prompted:"
+echo " When prompted by the NVIDIA installer:"
 echo "   - Select NO to the xconfig utility"
 echo ""
-echo " After the installer finishes, REBOOT,"
-echo " then run script3-sunshine.sh"
+echo " NOTE: If you have not yet enabled GPU passthrough in"
+echo " Proxmox, do so before running script3-sunshine.sh."
+echo " Sunshine requires the GPU to be active."
 echo "========================================================"
+echo ""
+read -p "Press Enter to launch the NVIDIA installer..."
+sudo ~/Downloads/NVIDIA-Linux-x86_64-595.71.05.run
+echo ""
+echo "NVIDIA installer complete. Please reboot and run script3-sunshine.sh"

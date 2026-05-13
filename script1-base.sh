@@ -48,8 +48,8 @@ sudo dnf install -y dnf-plugins-core
 sudo setsebool -P domain_kernel_load_modules on
 
 # === CACHYOS KERNEL ===
-sudo dnf copr enable bieszczaders/kernel-cachyos
-sudo dnf copr enable bieszczaders/kernel-cachyos-addons
+echo "y" | sudo dnf copr enable bieszczaders/kernel-cachyos
+echo "y" | sudo dnf copr enable bieszczaders/kernel-cachyos-addons
 
 sudo dnf install -y $KERNEL_PKG $KERNEL_DEVEL_PKG
 sudo dnf install -y --allowerasing cachyos-settings scx-manager scx-scheds-git scx-tools-git
@@ -63,6 +63,20 @@ sudo dracut -f --kver "$CACHY_VER"
 
 # === UPDATE GRUB ===
 sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+
+# === AKONADI FIX ===
+# If KDE PIM is not installed, mask Akonadi to prevent
+# MariaDB crashes on login. If PIM is installed we assume
+# the user wants it and leave it alone.
+if ! rpm -q akonadi-server &>/dev/null; then
+    echo "KDE PIM not installed - masking Akonadi to prevent crashes..."
+    akonadictl stop 2>/dev/null || true
+    rm -rf ~/.local/share/akonadi/
+    systemctl --user mask akonadi.service
+    systemctl --user mask akonadi.socket
+else
+    echo "KDE PIM detected - leaving Akonadi enabled."
+fi
 
 echo ""
 echo "========================================================"
