@@ -2,6 +2,13 @@ This is a Work In Progress!!!
 Things may break here and there..
 As I find them myself, I will work to fix them.
 
+MASTER SCRIPT: Does not work yet, do not use unless you know how
+fix things!!!!
+
+PCI GPU needs to be enabled to install correct Nvidia Drivers
+Does not need to be primary display until you are ready to stream
+with Sunshine.
+
 Attempted to install CachyOS kernel onto a Fedora 44 VM under Proxmox.
 
 Using ClaudAI to help make adjustments and see where things went wrong
