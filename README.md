@@ -9,6 +9,8 @@ PCI GPU needs to be enabled to install correct Nvidia Drivers
 Does not need to be primary display until you are ready to stream
 with Sunshine.
 
+REMEMBER: Choose to rebuild initram from Nvidia Drivers!!!
+
 Attempted to install CachyOS kernel onto a Fedora 44 VM under Proxmox.
 
 Using ClaudAI to help make adjustments and see where things went wrong
