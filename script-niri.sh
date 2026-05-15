@@ -23,12 +23,19 @@ fi
 #   4. SSH must be working (it's your only way in/out)
 #
 # WHAT THIS SCRIPT DOES:
-#   - Installs greetd (lightweight display manager)
+#   - Installs greetd + seatd (lightweight display/seat manager)
 #   - Installs niri and supporting Wayland packages
 #   - Configures greetd for autologin into niri
 #   - Sets up niri config with correct NVIDIA GPU selection
 #   - Wires Sunshine into the niri systemd session
 #   - Fixes locale for display manager compatibility
+#
+# AFTER REBOOT:
+#   - Connect via Moonlight
+#   - Access Sunshine web UI via SSH tunnel:
+#       ssh -L 47990:localhost:47990 <user>@<vm-ip>
+#       then open https://localhost:47990 in browser
+#   - Create Sunshine admin account and pair Moonlight
 #
 # REBOOT when complete, then connect via Moonlight.
 # =============================================================
@@ -67,6 +74,7 @@ if ls /sys/class/drm/ | grep -q "card.*Virtual"; then
 fi
 
 # === DETECT NVIDIA CARD ===
+# Card number varies depending on boot order - detect dynamically
 NVIDIA_CARD=$(grep -rl '0x10de' /sys/class/drm/card*/device/vendor 2>/dev/null | \
     grep -o 'card[0-9]' | head -1)
 if [ -z "$NVIDIA_CARD" ]; then
@@ -79,16 +87,58 @@ echo "NVIDIA GPU detected at: ${NVIDIA_DRI}"
 
 # === FIX LOCALE ===
 # Display managers and Qt apps require UTF-8 locale.
-# Without this, plasmalogin-helper and similar tools crash.
+# Without this, some display manager helpers crash on launch.
 echo "Setting system locale to UTF-8..."
 sudo localectl set-locale LANG=en_US.UTF-8
 sudo localedef -i en_US -f UTF-8 en_US.UTF-8 2>/dev/null || true
 
-# === INSTALL GREETD ===
-# Lightweight display manager that handles Wayland sessions
-# properly without KDE/GNOME dependencies.
-echo "Installing greetd..."
-sudo dnf install -y greetd
+# === INSTALL GREETD AND SEATD ===
+# greetd: lightweight display manager for Wayland sessions
+# seatd: seat management daemon required by niri for device access
+echo "Installing greetd and seatd..."
+sudo dnf install -y greetd seatd
+
+# === ADD USER TO SEAT GROUP ===
+# Required for seatd device access - takes effect after reboot
+sudo usermod -aG seat $USER
+echo "Added ${USER} to seat group."
+
+# === ENABLE SEATD ===
+sudo systemctl enable --now seatd
+
+# === CONFIGURE GREETD FOR AUTOLOGIN ===
+# [initial_session] triggers autologin on first boot
+# [default_session] handles subsequent sessions
+echo "Configuring greetd autologin..."
+sudo mkdir -p /etc/greetd
+sudo tee /etc/greetd/config.toml > /dev/null << EOF
+[terminal]
+vt = 1
+
+[default_session]
+command = "niri-session"
+user = "${USER}"
+
+[initial_session]
+command = "niri-session"
+user = "${USER}"
+EOF
+
+# === ENABLE GREETD ===
+# Disable any existing display manager that may conflict
+sudo systemctl disable plasmalogin 2>/dev/null || true
+sudo systemctl disable sddm 2>/dev/null || true
+sudo systemctl disable gdm 2>/dev/null || true
+
+sudo systemctl enable greetd
+
+# === ADD GREETD TO GRAPHICAL TARGET ===
+# systemctl enable alone is not always sufficient -
+# explicit symlink ensures greetd starts with graphical.target
+sudo mkdir -p /etc/systemd/system/graphical.target.wants
+sudo ln -sf /usr/lib/systemd/system/greetd.service \
+    /etc/systemd/system/graphical.target.wants/greetd.service
+sudo systemctl daemon-reload
 
 # === INSTALL NIRI AND SUPPORTING PACKAGES ===
 echo "Installing niri..."
@@ -106,27 +156,6 @@ sudo dnf install -y \
     mako \
     lxpolkit \
     NetworkManager-tui
-
-# === CONFIGURE GREETD FOR AUTOLOGIN ===
-# Sets greetd to automatically log in as the current user
-# and launch niri-session directly.
-echo "Configuring greetd autologin..."
-sudo mkdir -p /etc/greetd
-sudo tee /etc/greetd/config.toml > /dev/null << EOF
-[terminal]
-vt = 1
-
-[default_session]
-command = "niri-session"
-user = "${USER}"
-EOF
-
-# === ENABLE GREETD ===
-sudo systemctl enable greetd
-# Disable any existing display manager that may conflict
-sudo systemctl disable plasmalogin 2>/dev/null || true
-sudo systemctl disable sddm 2>/dev/null || true
-sudo systemctl disable gdm 2>/dev/null || true
 
 # === CREATE NIRI CONFIG ===
 mkdir -p ~/.config/niri
@@ -154,8 +183,10 @@ input {
     }
 }
 
-// Output config - HDMI-A-1 is typical for NVIDIA passthrough with dummy plug
-// Run 'niri msg outputs' from within a session to confirm connector name
+// Output config - HDMI-A-1 is typical for NVIDIA passthrough with dummy plug.
+// If the screen is black after connecting, SSH in and run:
+//   niri msg outputs
+// Then update the output name below to match.
 output "HDMI-A-1" {
     mode "1920x1080@60.000"
     scale 1.0
@@ -250,7 +281,7 @@ EOF
 systemctl --user daemon-reload
 
 # === FIREWALL PORTS FOR SUNSHINE ===
-# (Already done by script3 if run, but included here for standalone use)
+# Already done by script3 if run, but included here for standalone use
 sudo firewall-cmd --permanent --add-port=47984/tcp 2>/dev/null || true
 sudo firewall-cmd --permanent --add-port=47989/tcp 2>/dev/null || true
 sudo firewall-cmd --permanent --add-port=47990/tcp 2>/dev/null || true
@@ -270,12 +301,23 @@ echo " NVIDIA GPU:  ${NVIDIA_DRI}"
 echo " Compositor:  niri $(niri --version 2>/dev/null || echo 'installed')"
 echo " Login mgr:   greetd (autologin as ${USER})"
 echo ""
-echo " NEXT STEPS:"
-echo "  1. Reboot the VM"
-echo "  2. Connect via Moonlight - niri will start automatically"
-echo "  3. Open Sunshine web UI: https://<vm-ip>:47990"
-echo "  4. Create your Sunshine admin account"
-echo "  5. Pair Moonlight when prompted"
+echo " IMPORTANT: Reboot now for seat group membership to"
+echo " take effect. Without this niri cannot access the GPU."
+echo ""
+echo " AFTER REBOOT:"
+echo "  1. Connect via Moonlight"
+echo "  2. To access Sunshine web UI, use an SSH tunnel:"
+echo "       ssh -L 47990:localhost:47990 ${USER}@<vm-ip>"
+echo "     Then open: https://localhost:47990"
+echo "  3. Create your Sunshine admin account"
+echo "  4. Enter the PIN shown in Moonlight"
+echo ""
+echo " IF YOU GET A BLACK SCREEN:"
+echo "  - SSH in and check: journalctl --user -u niri.service -n 30"
+echo "  - Verify NVIDIA card: ls /dev/dri/"
+echo "  - Check output name: niri msg outputs"
+echo "    Update output name in ~/.config/niri/config.kdl if needed"
+echo "  - Restart niri: systemctl --user restart niri.service"
 echo ""
 echo " KEY BINDINGS (Super/Windows key = Mod):"
 echo "  Mod+T        Terminal (alacritty)"
@@ -284,11 +326,6 @@ echo "  Mod+Q        Close window"
 echo "  Mod+F        Fullscreen"
 echo "  Mod+Space    Toggle floating"
 echo "  Mod+H/L      Focus left/right"
+echo "  Mod+1-4      Switch workspace"
 echo "  Mod+Shift+E  Exit niri"
-echo ""
-echo " If the screen is black after connecting:"
-echo "  - SSH in and check: journalctl --user -u niri.service -n 30"
-echo "  - Verify NVIDIA card: ls /dev/dri/"
-echo "  - Check output name: niri msg outputs"
-echo "    (update output name in ~/.config/niri/config.kdl if needed)"
 echo "========================================================"
