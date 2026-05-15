@@ -88,7 +88,7 @@ sudo localedef -i en_US -f UTF-8 en_US.UTF-8 2>/dev/null || true
 # Lightweight display manager that handles Wayland sessions
 # properly without KDE/GNOME dependencies.
 echo "Installing greetd..."
-sudo dnf install -y greetd greetd-seating
+sudo dnf install -y greetd
 
 # === INSTALL NIRI AND SUPPORTING PACKAGES ===
 echo "Installing niri..."
