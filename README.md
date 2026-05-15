@@ -24,6 +24,12 @@ Make sure the EFI disk in Proxmox does NOT have pregen keys
 
 These scripts assume you are using KDE Plasma - Wayland
 
+=== New Addition ===
+Script-niri is made to set up sunshine on a headless VM without KDE
+    use if you don't want a graphical desktop using RAM (or you 
+    just like using Niri)
+=====================
+
 Sunshine is installed as a service and does not need to be added to
 the autostart list, although you will need to add Steam to it.
 
