@@ -99,4 +99,4 @@ echo ""
 sudo bash -c "sleep 10 && userdel -r setup 2>/dev/null" &
 
 # === SWITCH TO NEW USER AND RUN SCRIPT 1 ===
-sudo su - "$NEW_USER" -c "cd ~/fedora_to_cachyos && bash script-niri.sh"
+sudo su - "$NEW_USER" -c "cd ~/fedora_to_cachyos && bash script1-base.sh"
