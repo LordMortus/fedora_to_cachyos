@@ -11,20 +11,25 @@
 #
 #   Then press Ctrl+X to boot.
 #
-# WHAT THIS DOES:
-#   - Installs a minimal Fedora 44 system with no desktop
-#   - Creates a temporary 'setup' user for first login
-#   - Enables SSH immediately
-#   - On first SSH login, runs bootstrap.sh which:
-#       * Asks for your desired username and password
-#       * Creates your user with correct groups
-#       * Clones the setup repo
-#       * Starts script1-base.sh automatically
+# PROXMOX SETUP ORDER:
+#   1. Add display device temporarily (so you can see GRUB)
+#   2. Add GPU passthrough (not primary yet)
+#   3. Add network adapter (virtio recommended)
+#   4. Enable QEMU Guest Agent in VM options
+#   5. Boot ISO, add inst.ks= to GRUB, let install run
+#   6. When install reboots:
+#      - Remove display device
+#      - Set GPU as Primary
+#   7. SSH in as 'setup' (password: setup)
+#      Proxmox will show the VM IP in the Summary tab
+#      once QEMU guest agent is running
 #
-# PRE-REQUISITES (set in Proxmox BEFORE booting the ISO):
-#   - Display device set to None
-#   - GPU passthrough enabled and set as Primary GPU
-#   - Network adapter added (virtio recommended)
+# WHAT HAPPENS AFTER SSH:
+#   bootstrap.sh runs automatically and will:
+#     - Ask for your username, password, and hostname
+#     - Create your user with correct groups
+#     - Clone the setup repo
+#     - Start script1-base.sh automatically
 #
 # ================================================================
 
@@ -51,7 +56,7 @@ selinux --enforcing
 # === TEMPORARY SETUP USER ===
 # This user is only for initial SSH access.
 # bootstrap.sh will create your real user and remove this one.
-# Password: setup (change after bootstrap if needed)
+# Password: setup (removed after bootstrap completes)
 user --name=setup --groups=wheel --password=setup --plaintext
 
 # === BOOTLOADER ===
@@ -69,6 +74,7 @@ wget
 openssh-server
 curl
 audit
+qemu-guest-agent
 %end
 
 # === POST INSTALL ===
@@ -76,6 +82,10 @@ audit
 
 # Enable SSH on first boot
 systemctl enable sshd
+
+# Enable QEMU guest agent so Proxmox can show IP in Summary tab
+# without needing a display device
+systemctl enable qemu-guest-agent
 
 # Clone the setup repo to a neutral location
 git clone https://github.com/LordMortus/fedora_to_cachyos.git /opt/fedora_to_cachyos
