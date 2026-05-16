@@ -24,9 +24,10 @@ fi
 echo "CachyOS kernel confirmed: $(uname -r)"
 
 # === FLATPAK SETUP ===
-# Ensure Flatpak is installed and Flathub is configured
+# Using --user avoids polkit/sudo prompts and works correctly headless.
+# User installs go to ~/.local/share/flatpak and don't need root.
 sudo dnf install -y flatpak
-flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 
 # === STEAM ===
 # Requires RPM Fusion nonfree (enabled in script 1)
@@ -34,13 +35,13 @@ sudo dnf install -y steam
 
 # === PROTONUP-QT ===
 # GUI tool for managing Proton-GE and other compatibility layers
-# Installed as a Flatpak since that's the recommended method
-flatpak install -y flathub net.davidotek.pupgui2
+# --user: installs to ~/.local/share/flatpak, no polkit prompt
+flatpak install --user -y flathub net.davidotek.pupgui2
 
 # === HEROIC GAMES LAUNCHER ===
 # Alternative to Lutris for Epic, GOG, and Amazon games
-# Flatpak is the recommended install method
-flatpak install -y flathub com.heroicgameslauncher.hgl
+# --user: installs to ~/.local/share/flatpak, no polkit prompt
+flatpak install --user -y flathub com.heroicgameslauncher.hgl
 
 # === MANGOHUD ===
 # In-game performance overlay (FPS, CPU, GPU, temps etc)
