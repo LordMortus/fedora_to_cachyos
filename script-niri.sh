@@ -15,26 +15,32 @@ fi
 # want a lightweight tiling compositor instead of KDE Plasma.
 #
 # PRE-REQUISITES - Complete these BEFORE running this script:
-#   1. Scripts 1 and 2 must be complete (CachyOS + NVIDIA)
+#   1. Scripts 1, 2, and 3 must be complete (CachyOS + NVIDIA
+#      + Sunshine)
 #   2. In Proxmox: set the VM display device to "none"
 #      Hardware -> Display -> None
 #      This prevents the virtual VGA conflicting with NVIDIA.
-#   3. Reboot after removing the display device
-#   4. SSH must be working (it's your only way in/out)
+#   3. In Proxmox: set the GPU as primary
+#      Hardware -> your GPU -> check Primary GPU
+#   4. Reboot after making Proxmox changes
+#   5. SSH must be working (it's your only way in/out)
 #
 # WHAT THIS SCRIPT DOES:
+#   - Sets graphical.target as default boot target
 #   - Installs greetd + seatd (lightweight display/seat manager)
 #   - Installs niri and supporting Wayland packages
 #   - Configures greetd for autologin into niri
 #   - Sets up niri config with correct NVIDIA GPU selection
 #   - Wires Sunshine into the niri systemd session
+#   - Loads uinput module for keyboard/mouse input
+#   - Temporarily sets SELinux permissive to pre-generate rules
 #   - Fixes locale for display manager compatibility
 #
 # AFTER REBOOT:
 #   - Connect via Moonlight
 #   - Access Sunshine web UI via SSH tunnel:
 #       ssh -L 47990:localhost:47990 <user>@<vm-ip>
-#       then open https://localhost:47990 in browser
+#       then open https://localhost:47990 in your browser
 #   - Create Sunshine admin account and pair Moonlight
 #
 # REBOOT when complete, then connect via Moonlight.
@@ -92,6 +98,19 @@ echo "Setting system locale to UTF-8..."
 sudo localectl set-locale LANG=en_US.UTF-8
 sudo localedef -i en_US -f UTF-8 en_US.UTF-8 2>/dev/null || true
 
+# === SET GRAPHICAL TARGET AS DEFAULT ===
+# Minimal Fedora installs default to multi-user.target which
+# prevents greetd from starting on boot.
+echo "Setting graphical.target as default boot target..."
+sudo systemctl set-default graphical.target
+
+# === LOAD UINPUT MODULE ===
+# Required for Sunshine keyboard and mouse input capture.
+# Without this, input devices are visible but not capturable.
+echo "Loading uinput module..."
+sudo modprobe uinput
+echo "uinput" | sudo tee /etc/modules-load.d/uinput.conf
+
 # === INSTALL GREETD AND SEATD ===
 # greetd: lightweight display manager for Wayland sessions
 # seatd: seat management daemon required by niri for device access
@@ -138,6 +157,12 @@ sudo systemctl enable greetd
 sudo mkdir -p /etc/systemd/system/graphical.target.wants
 sudo ln -sf /usr/lib/systemd/system/greetd.service \
     /etc/systemd/system/graphical.target.wants/greetd.service
+
+# === ADD DISPLAY MANAGER ALIAS ===
+# Required for proper boot ordering
+sudo ln -sf /usr/lib/systemd/system/greetd.service \
+    /etc/systemd/system/display-manager.service
+
 sudo systemctl daemon-reload
 
 # === INSTALL NIRI AND SUPPORTING PACKAGES ===
@@ -293,6 +318,30 @@ sudo firewall-cmd --permanent --add-port=48002/udp 2>/dev/null || true
 sudo firewall-cmd --permanent --add-port=48010/udp 2>/dev/null || true
 sudo firewall-cmd --reload 2>/dev/null || true
 
+# === SELINUX: PRE-GENERATE ALLOW RULES ===
+# Temporarily set SELinux to permissive mode, start Sunshine,
+# let it generate AVC denials, then build a policy from them.
+# This avoids having to leave SELinux disabled permanently.
+echo "Pre-generating SELinux policy for Sunshine..."
+sudo setenforce 0
+systemctl --user start app-dev.lizardbyte.app.Sunshine 2>/dev/null || true
+sleep 10
+
+# Generate and install policy from any denials
+if sudo ausearch -m avc | grep -q sunshine; then
+    sudo ausearch -m avc | grep sunshine | audit2allow -M sunshine-policy
+    sudo semodule -i sunshine-policy.pp
+    echo "SELinux policy for Sunshine installed."
+else
+    echo "No SELinux denials found - may already be allowed."
+fi
+
+# Re-enable SELinux enforcing mode
+sudo setenforce 1
+echo "SELinux set back to enforcing mode."
+
+systemctl --user restart app-dev.lizardbyte.app.Sunshine 2>/dev/null || true
+
 echo ""
 echo "========================================================"
 echo " SCRIPT-NIRI COMPLETE"
@@ -301,12 +350,13 @@ echo " NVIDIA GPU:  ${NVIDIA_DRI}"
 echo " Compositor:  niri $(niri --version 2>/dev/null || echo 'installed')"
 echo " Login mgr:   greetd (autologin as ${USER})"
 echo ""
-echo " IMPORTANT: Reboot now for seat group membership to"
-echo " take effect. Without this niri cannot access the GPU."
+echo " IMPORTANT: Reboot now for all changes to take effect."
+echo " (seat group membership, uinput module, graphical target)"
 echo ""
 echo " AFTER REBOOT:"
 echo "  1. Connect via Moonlight"
 echo "  2. To access Sunshine web UI, use an SSH tunnel:"
+echo "       On Windows PowerShell (not on the VM!):"
 echo "       ssh -L 47990:localhost:47990 ${USER}@<vm-ip>"
 echo "     Then open: https://localhost:47990"
 echo "  3. Create your Sunshine admin account"
