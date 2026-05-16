@@ -12,6 +12,8 @@ fi
 # SCRIPT 1 OF 4 - Base Setup & CachyOS Kernel
 # Run this first, on the default Fedora kernel.
 # REBOOT INTO CACHYOS KERNEL when complete.
+# NOTE: If running headless (no display device), the CachyOS
+# kernel will be set as the default boot kernel automatically.
 # =============================================================
 
 # === CPU ARCHITECTURE CHECK ===
@@ -64,18 +66,32 @@ sudo dracut -f --kver "$CACHY_VER"
 # === UPDATE GRUB ===
 sudo grub2-mkconfig -o /boot/grub2/grub.cfg
 
-# === AKONADI FIX ===
-# If KDE PIM is not installed, mask Akonadi to prevent
-# MariaDB crashes on login. If PIM is installed we assume
-# the user wants it and leave it alone.
-if ! rpm -q akonadi-server &>/dev/null; then
-    echo "KDE PIM not installed - masking Akonadi to prevent crashes..."
-    akonadictl stop 2>/dev/null || true
-    rm -rf ~/.local/share/akonadi/
-    systemctl --user mask akonadi.service
-    systemctl --user mask akonadi.socket
+# === SET CACHYOS KERNEL AS DEFAULT ===
+# Required for headless systems with no display/GRUB menu access.
+# Safe for headed systems too - boots straight to CachyOS kernel.
+CACHY_VMLINUZ=$(ls /boot/vmlinuz-*cachy* | tail -1)
+if [ -n "$CACHY_VMLINUZ" ]; then
+    sudo grubby --set-default "$CACHY_VMLINUZ"
+    echo "Default kernel set to: $CACHY_VMLINUZ"
 else
-    echo "KDE PIM detected - leaving Akonadi enabled."
+    echo "WARNING: Could not find CachyOS kernel in /boot - set default manually"
+fi
+
+# === AKONADI FIX ===
+# Only applies if KDE PIM is installed.
+# Skipped on minimal/headless installs to prevent crashes.
+if command -v akonadictl &>/dev/null; then
+    if ! rpm -q akonadi-server &>/dev/null; then
+        echo "KDE PIM not installed - masking Akonadi to prevent crashes..."
+        akonadictl stop 2>/dev/null || true
+        rm -rf ~/.local/share/akonadi/
+        systemctl --user mask akonadi.service
+        systemctl --user mask akonadi.socket
+    else
+        echo "KDE PIM detected - leaving Akonadi enabled."
+    fi
+else
+    echo "KDE not detected - skipping Akonadi config."
 fi
 
 echo ""
@@ -83,7 +99,8 @@ echo "========================================================"
 echo " SCRIPT 1 COMPLETE"
 echo ""
 echo " Kernel installed: $KERNEL_PKG"
+echo " Default kernel:   $CACHY_VMLINUZ"
 echo ""
-echo " NEXT STEP: Reboot and select the CachyOS kernel"
-echo " from the GRUB menu, then run script2-nvidia.sh"
+echo " NEXT STEP: Reboot then run script2-nvidia.sh"
+echo " (CachyOS kernel will boot automatically)"
 echo "========================================================"
