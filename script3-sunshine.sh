@@ -31,7 +31,7 @@ echo "NVIDIA driver confirmed."
 sudo dnf install -y python3-dnf-plugin-post-transaction-actions
 
 # === ENABLE SUNSHINE BETA COPR AND INSTALL ===
-sudo dnf copr enable lizardbyte/beta
+echo "y" | sudo dnf copr enable lizardbyte/beta
 sudo dnf install -y Sunshine
 
 # === GRANT KMS CAPTURE CAPABILITY ===
