@@ -58,50 +58,45 @@ read -p "Enter hostname for this VM (default: gamingvm): " NEW_HOST
 NEW_HOST=${NEW_HOST:-gamingvm}
 
 echo ""
-echo "Creating user '${NEW_USER}'..."
+echo "Setting up system..."
+
+# === INSTALL SEATD SO SEAT GROUP EXISTS ===
+# seatd is required by niri - install it now so the seat group
+# exists when we create the user
+sudo dnf install -y seatd 2>/dev/null || true
+sudo groupadd seat 2>/dev/null || true
 
 # === CREATE USER WITH CORRECT GROUPS ===
+echo "Creating user '${NEW_USER}'..."
 sudo useradd -m -G wheel,video,render,input,seat "$NEW_USER"
 echo "${NEW_USER}:${NEW_PASS}" | sudo chpasswd
 
 # === SET HOSTNAME ===
 sudo hostnamectl set-hostname "$NEW_HOST"
 
-# === MOVE REPO TO NEW USER'S HOME ===
+# === COPY REPO TO NEW USER'S HOME ===
 sudo cp -r "$REPO_PATH" "/home/${NEW_USER}/fedora_to_cachyos"
 sudo chown -R "${NEW_USER}:${NEW_USER}" "/home/${NEW_USER}/fedora_to_cachyos"
-sudo chmod +x "/home/${NEW_USER}/fedora_to_cachyos"/*.sh
+sudo find "/home/${NEW_USER}/fedora_to_cachyos" -name "*.sh" -exec chmod +x {} \;
 
-# === ADD SUDOERS ENTRY ===
-# Ensure wheel group has sudo access
+# === ENSURE SUDOERS IS CONFIGURED ===
 sudo grep -q "^%wheel" /etc/sudoers || \
     echo "%wheel ALL=(ALL) ALL" | sudo tee -a /etc/sudoers
 
 # === REMOVE BOOTSTRAP FROM SETUP USER PROFILE ===
-# Prevent it running again if setup user logs in
 sudo rm -f /home/setup/.bash_profile
 
 echo ""
 echo "========================================================"
 echo " User '${NEW_USER}' created successfully!"
+echo " Hostname set to: ${NEW_HOST}"
 echo ""
-echo " Setup repo is at: ~/fedora_to_cachyos"
-echo ""
-echo " Starting script1-base.sh as ${NEW_USER}..."
-echo " You will be switched to the new user automatically."
+echo " Switching to ${NEW_USER} and starting script 1..."
 echo "========================================================"
 echo ""
 
-# === REMOVE SETUP USER AFTER SWITCHING ===
-# Schedule setup user removal after we switch away from it
-sudo bash -c "sleep 5 && userdel -r setup 2>/dev/null" &
+# === SCHEDULE SETUP USER REMOVAL ===
+sudo bash -c "sleep 10 && userdel -r setup 2>/dev/null" &
 
-# === HAND OFF TO SCRIPT 1 AS NEW USER ===
-# Switch to the new user and run script 1
-exec sudo -u "$NEW_USER" -i bash -c "
-    cd ~/fedora_to_cachyos
-    echo ''
-    echo 'Logged in as ${NEW_USER}. Starting script 1...'
-    echo ''
-    bash script1-base.sh
-"
+# === SWITCH TO NEW USER AND RUN SCRIPT 1 ===
+sudo su - "$NEW_USER" -c "cd ~/fedora_to_cachyos && bash script1-base.sh"

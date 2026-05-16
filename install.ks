@@ -17,19 +17,16 @@
 #   3. Add network adapter (virtio recommended)
 #   4. Enable QEMU Guest Agent in VM options
 #   5. Boot ISO, add inst.ks= to GRUB, let install run
-#   6. When install reboots:
+#   6. When VM powers off:
 #      - Remove display device
-#      - Set GPU as Primary
-#   7. SSH in as 'setup' (password: setup)
-#      Proxmox will show the VM IP in the Summary tab
-#      once QEMU guest agent is running
-#
-# WHAT HAPPENS AFTER SSH:
-#   bootstrap.sh runs automatically and will:
-#     - Ask for your username, password, and hostname
-#     - Create your user with correct groups
-#     - Clone the setup repo
-#     - Start script1-base.sh automatically
+#      - Set GPU as Primary GPU
+#   7. Start VM, check Proxmox Summary tab for IP
+#   8. SSH in:  ssh setup@<vm-ip>  (password: setup)
+#      bootstrap.sh runs automatically and will:
+#        - Ask for your username, password, and hostname
+#        - Create your user with correct groups
+#        - Clone the setup repo
+#        - Start script1-base.sh automatically
 #
 # ================================================================
 
@@ -84,7 +81,6 @@ qemu-guest-agent
 systemctl enable sshd
 
 # Enable QEMU guest agent so Proxmox can show IP in Summary tab
-# without needing a display device
 systemctl enable qemu-guest-agent
 
 # Clone the setup repo to a neutral location
@@ -92,15 +88,18 @@ git clone https://github.com/LordMortus/fedora_to_cachyos.git /opt/fedora_to_cac
 chmod +x /opt/fedora_to_cachyos/*.sh
 
 # Wire bootstrap to run automatically on first login of setup user
-cat > /home/setup/.bash_profile << 'EOF'
-# Run bootstrap on first login
-if [ -f /opt/fedora_to_cachyos/bootstrap.sh ]; then
-    bash /opt/fedora_to_cachyos/bootstrap.sh
-fi
-EOF
-chown setup:setup /home/setup/.bash_profile
+# Written as explicit commands rather than heredoc for kickstart compatibility
+PROFILE=/home/setup/.bash_profile
+echo '#!/bin/bash' > $PROFILE
+echo 'if [ -f /opt/fedora_to_cachyos/bootstrap.sh ]; then' >> $PROFILE
+echo '    bash /opt/fedora_to_cachyos/bootstrap.sh' >> $PROFILE
+echo 'fi' >> $PROFILE
+chown setup:setup $PROFILE
+chmod 644 $PROFILE
 
 %end
 
-# === REBOOT AFTER INSTALL ===
-reboot
+# === SHUTDOWN AFTER INSTALL ===
+# Gives you time to remove display device and set GPU as primary
+# before first boot
+shutdown
