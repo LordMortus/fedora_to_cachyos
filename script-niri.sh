@@ -9,47 +9,22 @@ if [ "$EUID" -eq 0 ]; then
 fi
 
 # =============================================================
-# SCRIPT - Niri Wayland Compositor + Sunshine (Headless)
+# SCRIPT: Niri Compositor + SDDM Setup
+# Alternative display path — run after scripts 1-5 are complete.
+# Sets up Niri as a lightweight Wayland compositor with SDDM
+# for autologin, and wires Sunshine into the Niri session.
 #
-# This is an ALTERNATIVE to script3-sunshine.sh for users who
-# want a lightweight tiling compositor instead of KDE Plasma.
+# This script assumes a headless Fedora install (no existing
+# desktop environment or display manager).
 #
-# PRE-REQUISITES - Complete these BEFORE running this script:
-#   1. Scripts 1, 2, and 3 must be complete (CachyOS + NVIDIA
-#      + Sunshine)
-#   2. In Proxmox: set the VM display device to "none"
-#      Hardware -> Display -> None
-#      This prevents the virtual VGA conflicting with NVIDIA.
-#   3. In Proxmox: set the GPU as primary
-#      Hardware -> your GPU -> check Primary GPU
-#   4. Reboot after making Proxmox changes
-#   5. SSH must be working (it's your only way in/out)
-#
-# WHAT THIS SCRIPT DOES:
-#   - Sets graphical.target as default boot target
-#   - Installs greetd + seatd (lightweight display/seat manager)
-#   - Installs niri and supporting Wayland packages
-#   - Configures greetd for autologin into niri
-#   - Sets up niri config with correct NVIDIA GPU selection
-#   - Wires Sunshine into the niri systemd session
-#   - Loads uinput module for keyboard/mouse input
-#   - Temporarily sets SELinux permissive to pre-generate rules
-#   - Fixes locale for display manager compatibility
-#
-# AFTER REBOOT:
-#   - Connect via Moonlight
-#   - Access Sunshine web UI via SSH tunnel:
-#       ssh -L 47990:localhost:47990 <user>@<vm-ip>
-#       then open https://localhost:47990 in your browser
-#   - Create Sunshine admin account and pair Moonlight
-#
-# REBOOT when complete, then connect via Moonlight.
+# REBOOT when complete.
 # =============================================================
 
 # === VERIFY CACHYOS KERNEL IS RUNNING ===
 if ! uname -r | grep -q "cachy"; then
     echo "ERROR: Not running on the CachyOS kernel!"
     echo "Current kernel: $(uname -r)"
+    echo "Please reboot and select the CachyOS kernel from GRUB."
     exit 1
 fi
 echo "CachyOS kernel confirmed: $(uname -r)"
@@ -57,120 +32,36 @@ echo "CachyOS kernel confirmed: $(uname -r)"
 # === VERIFY NVIDIA DRIVER IS LOADED ===
 if ! nvidia-smi &>/dev/null; then
     echo "ERROR: NVIDIA driver not detected!"
-    echo "Please run script2-nvidia.sh first."
+    echo "Please complete scripts 1-3 before running this script."
     exit 1
 fi
 echo "NVIDIA driver confirmed."
 
-# === VERIFY NO CONFLICTING DISPLAY DEVICE ===
-# The Proxmox virtual VGA (bochs-drm) conflicts with NVIDIA
-# and causes niri to render to the wrong GPU (black screen).
-if ls /sys/class/drm/ | grep -q "card.*Virtual"; then
-    echo ""
-    echo "WARNING: Virtual display device detected!"
-    echo "This will cause a black screen in niri."
-    echo ""
-    echo "In Proxmox: Hardware -> Display -> set to None"
-    echo "Then reboot and re-run this script."
-    echo ""
-    read -p "Continue anyway? (yes/no): " CONTINUE
-    if [ "$CONTINUE" != "yes" ]; then
-        exit 1
-    fi
-fi
-
-# === DETECT NVIDIA CARD ===
-# Card number varies depending on boot order - detect dynamically
-NVIDIA_CARD=$(grep -rl '0x10de' /sys/class/drm/card*/device/vendor 2>/dev/null | \
-    grep -o 'card[0-9]' | head -1)
-if [ -z "$NVIDIA_CARD" ]; then
-    echo "ERROR: Could not detect NVIDIA DRM device."
-    echo "Check that nvidia_drm.modeset=1 is set and /dev/dri/card* exists."
+# === VERIFY SUNSHINE IS INSTALLED ===
+if ! command -v sunshine &>/dev/null; then
+    echo "ERROR: Sunshine not found!"
+    echo "Please complete script3-sunshine.sh before running this script."
     exit 1
 fi
-NVIDIA_DRI="/dev/dri/${NVIDIA_CARD}"
-echo "NVIDIA GPU detected at: ${NVIDIA_DRI}"
+echo "Sunshine confirmed."
 
-# === FIX LOCALE ===
-# Display managers and Qt apps require UTF-8 locale.
-# Without this, some display manager helpers crash on launch.
-echo "Setting system locale to UTF-8..."
-sudo localectl set-locale LANG=en_US.UTF-8
-sudo localedef -i en_US -f UTF-8 en_US.UTF-8 2>/dev/null || true
+# === PIPEWIRE ===
+# Required for portal-based screen capture (Sunshine -> xdg-desktop-portal -> PipeWire)
+sudo dnf install -y \
+    pipewire \
+    pipewire-pulseaudio \
+    pipewire-alsa \
+    wireplumber
 
-# === SET GRAPHICAL TARGET AS DEFAULT ===
-# Minimal Fedora installs default to multi-user.target which
-# prevents greetd from starting on boot.
-echo "Setting graphical.target as default boot target..."
-sudo systemctl set-default graphical.target
+# === SDDM ===
+sudo dnf install -y sddm
+sudo systemctl enable sddm
 
-# === LOAD UINPUT MODULE ===
-# Required for Sunshine keyboard and mouse input capture.
-# Without this, input devices are visible but not capturable.
-echo "Loading uinput module..."
-sudo modprobe uinput
-echo "uinput" | sudo tee /etc/modules-load.d/uinput.conf
-
-# === INSTALL GREETD AND SEATD ===
-# greetd: lightweight display manager for Wayland sessions
-# seatd: seat management daemon required by niri for device access
-echo "Installing greetd and seatd..."
-sudo dnf install -y greetd seatd
-
-# === ADD USER TO SEAT GROUP ===
-# Required for seatd device access - takes effect after reboot
-sudo usermod -aG seat $USER
-echo "Added ${USER} to seat group."
-
-# === ENABLE SEATD ===
-sudo systemctl enable --now seatd
-
-# === CONFIGURE GREETD FOR AUTOLOGIN ===
-# [initial_session] triggers autologin on first boot
-# [default_session] handles subsequent sessions
-echo "Configuring greetd autologin..."
-sudo mkdir -p /etc/greetd
-sudo tee /etc/greetd/config.toml > /dev/null << EOF
-[terminal]
-vt = 1
-
-[default_session]
-command = "niri-session"
-user = "${USER}"
-
-[initial_session]
-command = "niri-session"
-user = "${USER}"
-EOF
-
-# === ENABLE GREETD ===
-# Disable any existing display manager that may conflict
-sudo systemctl disable plasmalogin 2>/dev/null || true
-sudo systemctl disable sddm 2>/dev/null || true
-sudo systemctl disable gdm 2>/dev/null || true
-
-sudo systemctl enable greetd
-
-# === ADD GREETD TO GRAPHICAL TARGET ===
-# systemctl enable alone is not always sufficient -
-# explicit symlink ensures greetd starts with graphical.target
-sudo mkdir -p /etc/systemd/system/graphical.target.wants
-sudo ln -sf /usr/lib/systemd/system/greetd.service \
-    /etc/systemd/system/graphical.target.wants/greetd.service
-
-# === ADD DISPLAY MANAGER ALIAS ===
-# Required for proper boot ordering
-sudo ln -sf /usr/lib/systemd/system/greetd.service \
-    /etc/systemd/system/display-manager.service
-
-sudo systemctl daemon-reload
-
-# === INSTALL NIRI AND SUPPORTING PACKAGES ===
-echo "Installing niri..."
+# === NIRI ===
 echo "y" | sudo dnf copr enable yalter/niri
 sudo dnf install -y niri
 
-echo "Installing Wayland support packages..."
+# === NIRI DEPENDENCIES ===
 sudo dnf install -y \
     xdg-desktop-portal-gnome \
     xdg-desktop-portal-gtk \
@@ -182,50 +73,66 @@ sudo dnf install -y \
     lxpolkit \
     NetworkManager-tui
 
-# === CREATE NIRI CONFIG ===
-mkdir -p ~/.config/niri
-cat > ~/.config/niri/config.kdl << EOF
-// ~/.config/niri/config.kdl
-// Niri config for headless Fedora gaming VM with NVIDIA GPU passthrough
+# nm-applet needs GTK so skip it on a minimal install;
+# nmtui covers network management from a terminal if needed
 
-// === GPU SELECTION ===
-// Forces niri to use the NVIDIA GPU instead of any virtual display device.
-// GBM backend required for NVIDIA Wayland rendering.
-environment {
-    WLR_DRM_DEVICES "${NVIDIA_DRI}"
-    GBM_BACKEND "nvidia-drm"
-    __GLX_VENDOR_LIBRARY_NAME "nvidia"
-    LIBVA_DRIVER_NAME "nvidia"
-}
+# === POLKIT ===
+# Required for GUI privilege escalation (sudo prompts in graphical apps)
+sudo dnf install -y polkit
+
+# === VERIFY NIRI SESSION FILE EXISTS ===
+if [ ! -f /usr/share/wayland-sessions/niri.desktop ]; then
+    echo "ERROR: niri.desktop session file not found after install!"
+    echo "The niri package may not have installed correctly."
+    exit 1
+fi
+echo "niri.desktop session file confirmed."
+
+# === SDDM AUTOLOGIN ===
+sudo mkdir -p /etc/sddm.conf.d/
+sudo tee /etc/sddm.conf.d/autologin.conf > /dev/null << EOF
+[Autologin]
+User=$USER
+Session=niri.desktop
+EOF
+echo "SDDM autologin configured for $USER -> niri.desktop"
+
+# === NIRI CONFIG ===
+mkdir -p ~/.config/niri/
+tee ~/.config/niri/config.kdl > /dev/null << 'EOF'
+// ~/.config/niri/config.kdl
+// Minimal config tuned for a Sunshine streaming VM
 
 input {
-    keyboard {
-        xkb { }
-    }
-    mouse {
-        // Disable mouse acceleration for gaming
-        accel-speed 0.0
-    }
+  keyboard {
+    xkb { }
+  }
+  // Disable mouse acceleration for gaming
+  mouse {
+    accel-speed 0.0
+  }
+  touchpad {
+    tap
+  }
 }
 
-// Output config - HDMI-A-1 is typical for NVIDIA passthrough with dummy plug.
-// If the screen is black after connecting, SSH in and run:
-//   niri msg outputs
-// Then update the output name below to match.
-output "HDMI-A-1" {
-    mode "1920x1080@60.000"
-    scale 1.0
+// Adjust output name to match your VM's virtual display
+// Run `niri msg outputs` inside niri to find the correct name
+// Common values: Virtual-1, HDMI-A-1, DP-1
+output "Virtual-1" {
+  mode "1920x1080@60.000"
+  scale 1.0
 }
 
 layout {
-    gaps 8
-    center-focused-column "never"
-    default-column-width { proportion 0.5; }
-    focus-ring {
-        width 2
-        active-color "#7fc8ff"
-        inactive-color "#505050"
-    }
+  gaps 8
+  center-focused-column "never"
+  default-column-width { proportion 0.5; }
+  focus-ring {
+    width 2
+    active-color "#7fc8ff"
+    inactive-color "#505050"
+  }
 }
 
 prefer-no-csd
@@ -233,67 +140,58 @@ prefer-no-csd
 screenshot-path "~/Pictures/screenshots/%Y-%m-%d %H:%M:%S.png"
 
 // Autostart
-spawn-at-startup "waybar"
 spawn-at-startup "lxpolkit"
-spawn-at-startup "nm-applet" "--indicator"
 
 binds {
-    // Terminal
-    Mod+T { spawn "alacritty"; }
-    // App launcher
-    Mod+D { spawn "fuzzel"; }
-    // Close window
-    Mod+Q { close-window; }
-    // Exit niri
-    Mod+Shift+E { quit; }
-    // Power off monitors
-    Mod+Shift+P { power-off-monitors; }
+  Mod+T { spawn "alacritty"; }
+  Mod+D { spawn "fuzzel"; }
+  Mod+Q { close-window; }
+  // Exit niri back to SDDM login screen
+  Mod+Shift+E { quit; }
+  Mod+Shift+P { power-off-monitors; }
 
-    // Focus
-    Mod+Left  { focus-column-left; }
-    Mod+Right { focus-column-right; }
-    Mod+Up    { focus-window-up; }
-    Mod+Down  { focus-window-down; }
-    Mod+H     { focus-column-left; }
-    Mod+L     { focus-column-right; }
-    Mod+K     { focus-window-up; }
-    Mod+J     { focus-window-down; }
+  // Focus
+  Mod+Left  { focus-column-left; }
+  Mod+Right { focus-column-right; }
+  Mod+Up    { focus-window-up; }
+  Mod+Down  { focus-window-down; }
+  Mod+H     { focus-column-left; }
+  Mod+L     { focus-column-right; }
+  Mod+K     { focus-window-up; }
+  Mod+J     { focus-window-down; }
 
-    // Move windows
-    Mod+Shift+Left  { move-column-left; }
-    Mod+Shift+Right { move-column-right; }
-    Mod+Shift+H     { move-column-left; }
-    Mod+Shift+L     { move-column-right; }
+  // Move
+  Mod+Shift+Left  { move-column-left; }
+  Mod+Shift+Right { move-column-right; }
+  Mod+Shift+H     { move-column-left; }
+  Mod+Shift+L     { move-column-right; }
 
-    // Fullscreen and float
-    Mod+F     { fullscreen-window; }
-    Mod+Space { toggle-window-floating; }
+  // Fullscreen / float
+  Mod+F     { fullscreen-window; }
+  Mod+Space { toggle-window-floating; }
 
-    // Workspaces
-    Mod+1 { focus-workspace 1; }
-    Mod+2 { focus-workspace 2; }
-    Mod+3 { focus-workspace 3; }
-    Mod+4 { focus-workspace 4; }
-    Mod+Shift+1 { move-window-to-workspace 1; }
-    Mod+Shift+2 { move-window-to-workspace 2; }
-    Mod+Shift+3 { move-window-to-workspace 3; }
-    Mod+Shift+4 { move-window-to-workspace 4; }
+  // Workspaces
+  Mod+1 { focus-workspace 1; }
+  Mod+2 { focus-workspace 2; }
+  Mod+3 { focus-workspace 3; }
+  Mod+Shift+1 { move-window-to-workspace 1; }
+  Mod+Shift+2 { move-window-to-workspace 2; }
+  Mod+Shift+3 { move-window-to-workspace 3; }
 
-    // Screenshots
-    Print      { screenshot; }
-    Ctrl+Print { screenshot-screen; }
+  // Screenshots
+  Print      { screenshot; }
+  Ctrl+Print { screenshot-screen; }
 }
 EOF
-
 echo "Niri config written to ~/.config/niri/config.kdl"
 
 # === WIRE SUNSHINE INTO NIRI SESSION ===
-# Link Sunshine to start and stop with the niri session
-systemctl --user add-wants niri.service app-dev.lizardbyte.app.Sunshine.service 2>/dev/null || true
+# Link Sunshine to start and stop with niri
+systemctl --user add-wants niri.service app-dev.lizardbyte.app.Sunshine.service
 
-# Create override so Sunshine waits for niri's Wayland socket
+# Override: wait for Niri's Wayland socket before starting
 mkdir -p ~/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d/
-cat > ~/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d/niri-wayland.conf << 'EOF'
+tee ~/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d/niri-wayland.conf > /dev/null << 'EOF'
 [Unit]
 After=niri.service
 Requires=graphical-session.target
@@ -304,78 +202,34 @@ Environment=XDG_SESSION_TYPE=wayland
 EOF
 
 systemctl --user daemon-reload
-
-# === FIREWALL PORTS FOR SUNSHINE ===
-# Already done by script3 if run, but included here for standalone use
-sudo firewall-cmd --permanent --add-port=47984/tcp 2>/dev/null || true
-sudo firewall-cmd --permanent --add-port=47989/tcp 2>/dev/null || true
-sudo firewall-cmd --permanent --add-port=47990/tcp 2>/dev/null || true
-sudo firewall-cmd --permanent --add-port=48010/tcp 2>/dev/null || true
-sudo firewall-cmd --permanent --add-port=47998/udp 2>/dev/null || true
-sudo firewall-cmd --permanent --add-port=47999/udp 2>/dev/null || true
-sudo firewall-cmd --permanent --add-port=48000/udp 2>/dev/null || true
-sudo firewall-cmd --permanent --add-port=48002/udp 2>/dev/null || true
-sudo firewall-cmd --permanent --add-port=48010/udp 2>/dev/null || true
-sudo firewall-cmd --reload 2>/dev/null || true
-
-# === SELINUX: PRE-GENERATE ALLOW RULES ===
-# Temporarily set SELinux to permissive mode, start Sunshine,
-# let it generate AVC denials, then build a policy from them.
-# This avoids having to leave SELinux disabled permanently.
-echo "Pre-generating SELinux policy for Sunshine..."
-sudo setenforce 0
-systemctl --user start app-dev.lizardbyte.app.Sunshine 2>/dev/null || true
-sleep 10
-
-# Generate and install policy from any denials
-if sudo ausearch -m avc | grep -q sunshine; then
-    sudo ausearch -m avc | grep sunshine | audit2allow -M sunshine-policy
-    sudo semodule -i sunshine-policy.pp
-    echo "SELinux policy for Sunshine installed."
-else
-    echo "No SELinux denials found - may already be allowed."
-fi
-
-# Re-enable SELinux enforcing mode
-sudo setenforce 1
-echo "SELinux set back to enforcing mode."
-
-systemctl --user restart app-dev.lizardbyte.app.Sunshine 2>/dev/null || true
+echo "Sunshine wired into Niri session."
 
 echo ""
 echo "========================================================"
 echo " SCRIPT-NIRI COMPLETE"
 echo ""
-echo " NVIDIA GPU:  ${NVIDIA_DRI}"
-echo " Compositor:  niri $(niri --version 2>/dev/null || echo 'installed')"
-echo " Login mgr:   greetd (autologin as ${USER})"
+echo " Installed:"
+echo "  - PipeWire (audio + screen capture backend)"
+echo "  - SDDM (display manager, autologin -> niri)"
+echo "  - Niri (Wayland compositor)"
+echo "  - xdg-desktop-portal-gnome (Sunshine screen capture)"
+echo "  - xwayland-satellite (X11 app support)"
+echo "  - alacritty, fuzzel, lxpolkit"
 echo ""
-echo " IMPORTANT: Reboot now for all changes to take effect."
-echo " (seat group membership, uinput module, graphical target)"
+echo " IMPORTANT: After rebooting, open the Sunshine web UI:"
+echo "   https://localhost:47990 (or via SSH tunnel)"
+echo "   Go to Configuration -> Video"
+echo "   Set capture method to: portal"
 echo ""
-echo " AFTER REBOOT:"
-echo "  1. Connect via Moonlight"
-echo "  2. To access Sunshine web UI, use an SSH tunnel:"
-echo "       On Windows PowerShell (not on the VM!):"
-echo "       ssh -L 47990:localhost:47990 ${USER}@<vm-ip>"
-echo "     Then open: https://localhost:47990"
-echo "  3. Create your Sunshine admin account"
-echo "  4. Enter the PIN shown in Moonlight"
+echo " If the output name 'Virtual-1' is wrong, fix it via SSH:"
+echo "   Connect via Moonlight first to get a session, then run:"
+echo "   niri msg outputs"
+echo "   Edit ~/.config/niri/config.kdl with the correct name"
 echo ""
-echo " IF YOU GET A BLACK SCREEN:"
-echo "  - SSH in and check: journalctl --user -u niri.service -n 30"
-echo "  - Verify NVIDIA card: ls /dev/dri/"
-echo "  - Check output name: niri msg outputs"
-echo "    Update output name in ~/.config/niri/config.kdl if needed"
-echo "  - Restart niri: systemctl --user restart niri.service"
+echo " Emergency recovery if display breaks:"
+echo "   ssh in and run:"
+echo "   sudo systemctl set-default multi-user.target"
+echo "   sudo systemctl restart sddm  (or reboot)"
 echo ""
-echo " KEY BINDINGS (Super/Windows key = Mod):"
-echo "  Mod+T        Terminal (alacritty)"
-echo "  Mod+D        App launcher (fuzzel)"
-echo "  Mod+Q        Close window"
-echo "  Mod+F        Fullscreen"
-echo "  Mod+Space    Toggle floating"
-echo "  Mod+H/L      Focus left/right"
-echo "  Mod+1-4      Switch workspace"
-echo "  Mod+Shift+E  Exit niri"
+echo " REBOOT NOW to start SDDM and Niri."
 echo "========================================================"
