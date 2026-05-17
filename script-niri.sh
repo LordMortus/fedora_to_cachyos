@@ -88,12 +88,20 @@ if [ ! -f /usr/share/wayland-sessions/niri.desktop ]; then
 fi
 echo "niri.desktop session file confirmed."
 
+# === SET GRAPHICAL BOOT TARGET ===
+# Minimal Fedora installs default to multi-user.target — SDDM
+# will be enabled but never started without this.
+sudo systemctl set-default graphical.target
+
 # === SDDM AUTOLOGIN ===
 sudo mkdir -p /etc/sddm.conf.d/
 sudo tee /etc/sddm.conf.d/autologin.conf > /dev/null << EOF
 [Autologin]
 User=$USER
 Session=niri.desktop
+
+[Theme]
+Current=default
 EOF
 echo "SDDM autologin configured for $USER -> niri.desktop"
 
@@ -140,6 +148,7 @@ prefer-no-csd
 screenshot-path "~/Pictures/screenshots/%Y-%m-%d %H:%M:%S.png"
 
 // Autostart
+spawn-at-startup "waybar"
 spawn-at-startup "lxpolkit"
 
 binds {
