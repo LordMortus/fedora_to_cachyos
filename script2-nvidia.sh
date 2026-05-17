@@ -9,7 +9,7 @@ if [ "$EUID" -eq 0 ]; then
 fi
 
 # =============================================================
-# SCRIPT 2 OF 4 - NVIDIA Driver
+# SCRIPT 2 OF 5 - NVIDIA Driver
 # Run this on the CachyOS kernel AFTER rebooting from script 1.
 # Verify you are on the correct kernel before continuing:
 #   uname -r   (should show cachyos in the version string)
@@ -49,12 +49,38 @@ if [ ! -f "$NVIDIA_RUN" ]; then
 fi
 chmod +x "$NVIDIA_RUN"
 
-# === BLACKLIST NOUVEAU (required before silent install) ===
-# The installer does this itself in interactive mode; in silent mode
-# we pre-create the file so it doesn't trip over missing dracut triggers.
+# === BLACKLIST NOUVEAU ===
+# Pre-create the blacklist file so the installer doesn't trip
+# over missing dracut triggers in silent mode.
 if ! grep -q "blacklist nouveau" /etc/modprobe.d/blacklist-nouveau.conf 2>/dev/null; then
     echo "blacklist nouveau" | sudo tee /etc/modprobe.d/blacklist-nouveau.conf
     echo "options nouveau modeset=0" | sudo tee -a /etc/modprobe.d/blacklist-nouveau.conf
+fi
+
+# === UNLOAD NOUVEAU IF LOADED ===
+# The NVIDIA installer requires nouveau to not be running.
+# On a GPU passthrough VM nouveau is usually not loaded at all
+# (the GPU is owned by vfio-pci, not nouveau), but we check
+# and unload it if present rather than assuming either way.
+#
+# If nouveau is in use by a display server this will fail —
+# but on our headless setup that shouldn't happen.
+if lsmod | grep -q "^nouveau"; then
+    echo "nouveau is loaded — unloading before NVIDIA install..."
+    sudo modprobe -r nouveau || {
+        echo ""
+        echo "ERROR: Could not unload nouveau module."
+        echo "It may be in use by an active display server."
+        echo ""
+        echo "Try dropping to a text console and running this script again:"
+        echo "  sudo systemctl isolate multi-user.target"
+        echo "  bash ~/fedora_to_cachyos/script2-nvidia.sh"
+        exit 1
+    }
+    echo "nouveau unloaded successfully."
+else
+    echo "nouveau is not loaded — no action needed."
+    echo "(Expected on GPU passthrough — GPU is owned by vfio-pci)"
 fi
 
 # === RUN NVIDIA INSTALLER ===
@@ -87,7 +113,7 @@ else
     # --silent                : no UI/prompts
     # --accept-license        : accept EULA
     # --no-x-check            : skip X server running check (headless)
-    # --no-nouveau-check      : we already blacklisted it above
+    # --no-nouveau-check      : we already blacklisted and unloaded it above
     # --dkms                  : register with DKMS for kernel update survival
     # --install-compat32-libs : install 32-bit GL libs (required for Steam)
     # Default: does NOT run nvidia-xconfig (correct for Wayland)
