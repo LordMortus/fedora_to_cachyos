@@ -62,7 +62,7 @@ selinux --enforcing
 # does not support line continuation, causing "unrecognized
 # arguments" errors for every wrapped line.
 # ================================================================
-user --name=gamer --groups=wheel,video,render,input --password=$6$Esy6iTfo82bo4uSO$Kvi1tHD16NzmqM.ebhUYx9Fz/N3DhFuLSyo9ki.QtjuhfbrxwZr3ewTWcu4qLocQ/eSaytRxS5gSTfwc6Dy480 --iscrypted --gecos="Gaming VM User"
+user --name=gamer --groups=wheel,video,render,input --password=<INSERT HAS HERE> --iscrypted --gecos="Gaming VM User"
 
 
 # ================================================================
