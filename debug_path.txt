@@ -1,0 +1,159 @@
+# Fedora 44 Gaming VM — Debug Path
+# All hurdles encountered and solutions found during development
+
+## 1. custom/custom.ipxe "Not Found" Error
+**Symptom:** netboot.xyz custom menu entry failing with file not found.
+**Cause:** iPXE chain path mismatch between netboot.xyz config and actual TrueNAS file location.
+**Solution:** Correct the path in the iPXE config to match the exact dataset mount path on TrueNAS.
+
+---
+
+## 2. Kickstart "unrecognized arguments" — user line continuations
+**Symptom:** Anaconda drops to debug shell. anaconda.log shows:
+  `ERR kickstart.parsing: unrecognized arguments`
+  `Unknown command: --groups=wheel,video,render,input`
+  `Unknown command: --password=...`
+  `Unknown command: --iscrypted`
+**Cause:** The `user` command was split across multiple lines using backslash continuations.
+  Dracut parses the kickstart before Anaconda and does not support line continuation.
+  Each continuation line is treated as a separate unknown command.
+**Solution:** Collapse the entire `user` command onto a single line. No exceptions.
+  Example:
+  `user --name=gamer --groups=wheel,video,render,input --password=$6$... --iscrypted --gecos="Gaming VM User"`
+
+---
+
+## 3. "GRUB2 does not support installation to a partition"
+**Symptom:** Install fails with GRUB error during bootloader setup.
+**Cause:** Kickstart had `bootloader --location=partition`
+**Solution:** Change to `bootloader --location=mbr --boot-drive=sda`
+  Note: `--location=mbr` is correct even on UEFI systems. Anaconda handles the ESP automatically.
+
+---
+
+## 4. Kickstart logvol syntax error
+**Symptom:** Storage configuration fails in Anaconda.
+**Cause:** `logvol` command broken across multiple lines.
+**Solution:** Ensure logvol is a single flat line:
+  `logvol / --vgname=vg_root --name=root --fstype=ext4 --size=1 --grow`
+
+---
+
+## 5. SSH "Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password)"
+**Symptom:** SSH login rejected after install despite correct password.
+**Cause:** Fedora 44 defaults to `PasswordAuthentication no` in sshd_config.
+**Solution:** Add to kickstart %post:
+  `echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config`
+
+---
+
+## 6. Unknown password hash after install
+**Symptom:** Cannot SSH or console login — don't remember what password was hashed.
+**Cause:** Password hash generated during kickstart development, origin forgotten.
+**Solution:** 
+  - Boot into emergency/single user mode via GRUB (press `e`, add `single` to linux line)
+  - Remount root rw: `mount -o remount,rw /dev/mapper/vg_root-root /`
+  - Reset password: `passwd gamer`
+  - Generate new hash for kickstart: `openssl passwd -6` (prompts, no echo, no shell history)
+  - Note: Hash is independent of which user/system runs the command.
+
+---
+
+## 7. Root filesystem mounted read-only in emergency shell
+**Symptom:** `passwd` returns "Authentication token manipulation error / password unchanged"
+**Cause:** Emergency shell mounts root read-only.
+**Solution:** `mount -o remount,rw /dev/mapper/vg_root-root /`
+  Verify with: `mount | grep "/ "` — should show `rw`
+
+---
+
+## 8. Cannot reboot from initramfs/emergency shell
+**Symptom:** `reboot` and `poweroff` fail with "System has not been booted with systemd as init system"
+**Cause:** Systemd not running in minimal emergency shell environment.
+**Solution:** Force stop VM from Proxmox web UI (Stop, not Shutdown), then Start.
+  Alternative: `exec /sbin/init` or `/sbin/reboot -f`
+
+---
+
+## 9. Niri compositor not detecting outputs (NVIDIA DRM ownership)
+**Symptom:** Niri starts but shows no outputs — NVIDIA driver claims DRM ownership.
+**Previous status:** Blocked in earlier Niri test VM (hostname: nirigamer)
+**Solution:** Resolved on fresh install with GPU set as Primary GPU from the start in Proxmox.
+  Key difference: GPU passthrough enabled before first boot, not added after.
+  Note: xdg-desktop-portal-gnome was being explored for screen capture at time of resolution.
+
+---
+
+## 10. Anaconda debug shell not discovered until late
+**Symptom:** Install failures with no obvious way to inspect logs.
+**Discovery:** Anaconda drops to a shell on failure. Also:
+  - Shell available on TTY2
+  - In TMUX pane: `ctrl+b` then `2`
+  - Log files in `/tmp/anaconda/` — storage.log, packaging.log, program.log, anaconda.log
+  - Actual fetched kickstart at `/run/install/ks.cfg`
+**Useful commands:**
+  - `grep -i error /tmp/anaconda/*.log` — all errors across all logs
+  - `grep -n "part\|volgroup\|logvol\|bootloader" /run/install/ks.cfg` — storage config check
+  - `tail -50 /tmp/anaconda/program.log` — end of program log
+  - `less <file>` then `G` to jump to end
+
+---
+
+## 11. VM console goes dark after GPU passthrough active
+**Symptom:** Proxmox console shows nothing once VM boots normally — GPU passthrough takes over display.
+**Cause:** GPU set as primary — output goes to physical GPU, not virtual console.
+**Impact:** No console access in normal boot. SSH is the only way in.
+**Workaround:** Emergency/single user mode still outputs to virtual console before GPU initializes.
+  Always confirm SSH access before rebooting into normal mode.
+**Related:** Dummy HDMI dongle only advertises standard 16:9 resolutions. On an ultrawide monitor
+  (LG 29WK600-W, 2560x1080) the stream will be pillarboxed. Fix requires an EDID dongle that
+  explicitly advertises 2560x1080 in its EDID table.
+
+---
+
+## 12. GL.iNet router wipes PXE DHCP options on restart
+**Symptom:** PXE boot stops working after router restarts — DHCP no longer sends option 66/67.
+**Cause:** GL.iNet firmware overwrites LuCI/dnsmasq config on every restart. Any PXE options
+  set via the LuCI web UI are lost.
+**Solution:** Inject PXE options via `/etc/rc.local` instead, which survives reboots:
+  ```
+  mkdir -p /tmp/dnsmasq.d
+  echo "dhcp-option=66,192.168.1.66" > /tmp/dnsmasq.d/pxe.conf
+  echo "dhcp-option=67,netboot.xyz.efi" >> /tmp/dnsmasq.d/pxe.conf
+  ```
+  The active dnsmasq config (`/var/etc/dnsmasq.conf.cfg01411c`) uses `conf-dir=/tmp/dnsmasq.d`
+  so files dropped there are picked up automatically.
+**Note:** Verify with Wireshark — DHCP offers should include server host name (option 66)
+  and boot file name (option 67).
+
+---
+
+## 13. OVMF UEFI VM does not register NIC as boot option
+**Symptom:** PXE boot works fine with SeaBIOS but OVMF (UEFI) VM never attempts network boot —
+  NIC does not appear in UEFI Boot Manager.
+**Cause:** Proxmox 9.1 does not expose the `romfile` parameter in its qm schema, so there is
+  no supported way to attach an iPXE ROM to a NIC under OVMF. The NIC is visible to the OS
+  but OVMF never discovers it as a UEFI boot option.
+**What was tried (all failed):**
+  - NIC models: VirtIO, Intel E1000, Intel E1000E
+  - Removing and recreating EFI disk (no pre-enrolled keys)
+  - `romfile=pxe-e1000.rom` — not supported in Proxmox 9.1 schema
+  - `args: -option-rom /usr/share/kvm/pxe-e1000.rom` — no effect
+  - efibootmgr from Arch live ISO — EFI partition not accessible from inside VM
+  - OVMF NVRAM is a raw blob in qcow2 EFI disk, not directly editable
+**Workaround:** Use SeaBIOS (not OVMF) for PXE boot. SeaBIOS correctly presents the NIC
+  as `iPXE (PCI 06:12.0)` as boot option 1. Switch to OVMF only after install if UEFI boot
+  is required for the final system.
+**Alternative not yet tested:** Attach Fedora netinstall ISO as CD-ROM with `inst.ks=http://...`
+  passed as a kernel argument — bypasses PXE entirely for the initial install.
+
+---
+
+## General Lessons Learned
+- Always use `less` with `G` to jump to end of log files rather than `cat`
+- `grep -i error /tmp/anaconda/*.log` is the fastest triage command in Anaconda debug shell
+- Test SSH before rebooting out of any recovery shell
+- Generate password hashes with `openssl passwd -6` (interactive, no history)
+- Add comments in kickstart explaining non-obvious constraints (line continuations, bootloader location)
+- The Anaconda debug shell is your best friend — learn it early
+- VirtIO RNG device recommended for entropy during %post crypto operations
