@@ -92,7 +92,8 @@ sudo cp -r falcond-profiles/usr/share/falcond/* /usr/share/falcond/
 
 # === ENABLE AND START ===
 sudo systemctl daemon-reload
-sudo systemctl enable --now falcond
+sudo systemctl enable falcond
+sudo systemctl start falcond || true
 sudo systemctl status falcond --no-pager
 
 echo ""
