@@ -687,7 +687,7 @@ if [ "$STAGE" = "5" ]; then
 
     sudo systemctl daemon-reload
     sudo systemctl enable falcond
-    sudo systemctl start falcond || true
+    sudo systemctl start falcond --no-block
 
     set_stage 6
     echo ""
