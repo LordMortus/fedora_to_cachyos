@@ -719,6 +719,7 @@ if [ "$STAGE" = "6" ]; then
     set_stage 7
     remove_resume_service
     rm -f "$STAGE_FILE"
+    sudo rm -f /etc/sudoers.d/vm-setup-nopasswd
 
     echo ""
     echo "========================================================"
