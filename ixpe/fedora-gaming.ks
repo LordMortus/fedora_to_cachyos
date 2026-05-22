@@ -70,7 +70,7 @@ keyboard --vckeymap=us --xlayouts=us
 # NETWORK
 # ================================================================
 network --bootproto=dhcp --device=link --activate --onboot=on
-network --hostname=gamingvm
+network --hostname=gamingvm   # Change if wanted
 
 
 # ================================================================
@@ -103,6 +103,9 @@ selinux --enforcing
 # Replace the hash below with your own.
 # The placeholder hash below is NOT valid — install will fail
 # if you don't replace it.
+# Change --name=gamer to --name=<your user namne> if you want
+# a different user name for the account in the VM.
+# It is advisable not to use spaces in a user name.
 #
 user --name=gamer --groups=wheel,video,render,input --password=$6$REPLACETHIS$REPLACETHISWITHYOURSHA512HASHHERE --iscrypted --gecos="Gaming VM User"
 
@@ -154,7 +157,7 @@ PROXMOX_NODE="rog"
 PROXMOX_VMID="999"
 PROXMOX_TOKEN="root@pam!pxe-boot=REPLACEWITHYOURTOKENSECRET"
 PROXMOX_BOOT_DISK="sata0"   # sata0, scsi0, virtio0 — match your VM disk type
-VM_USER="gamer"
+VM_USER="gamer"   # User must match what you changed it to!!
 # ----------------------------------------------------------------
 
 # --- Grant NOPASSWD sudo for the duration of %post ---
