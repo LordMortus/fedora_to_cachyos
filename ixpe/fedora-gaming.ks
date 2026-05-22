@@ -16,11 +16,10 @@
 #   9. Boot order: Network first, then disk
 #
 # AFTER INSTALL:
-#   VM will shut down automatically when done.
-#   Proxmox will automatically update the boot order to disk first
-#   via the API call at the end of %post — no manual steps needed.
-#   Start VM, SSH in as the user defined below.
-#   Run: cd ~/fedora_to_cachyos && bash script1-base.sh
+#   VM reboots automatically when done.
+#   Proxmox boot order is flipped to disk via the API call in %post.
+#   On first boot, a systemd service launches script-master-niri.sh
+#   automatically — no login or manual steps required.
 #
 # HANDS-FREE:
 #   Username, password, hostname, VM ID, and Proxmox details are
@@ -70,7 +69,7 @@ keyboard --vckeymap=us --xlayouts=us
 # NETWORK
 # ================================================================
 network --bootproto=dhcp --device=link --activate --onboot=on
-network --hostname=gamingvm   # Change if wanted
+network --hostname=gamingvm
 
 
 # ================================================================
@@ -103,11 +102,8 @@ selinux --enforcing
 # Replace the hash below with your own.
 # The placeholder hash below is NOT valid — install will fail
 # if you don't replace it.
-# Change --name=gamer to --name=<your user namne> if you want
-# a different user name for the account in the VM.
-# It is advisable not to use spaces in a user name.
 #
-user --name=gamer --groups=wheel,video,render,input --password=$6$REPLACETHIS$REPLACETHISWITHYOURSHA512HASHHERE --iscrypted --gecos="Gaming VM User"
+user --name=gamer --groups=wheel,video,render,input --password=$6$Er/pyNao8mbu3yWQ$iLImHXmzc/f34IJ1zvkHOCkHepsxBssAN1zO9h2ZFpwNH6ekHv/eHQet9MRKRr0aFaSVKZbuInPerVpiWIwod0 --iscrypted --gecos="Gaming VM User"
 
 
 # ================================================================
@@ -141,6 +137,8 @@ curl
 openssh-server
 audit
 qemu-guest-agent
+systemd-container
+-brltty
 %end
 
 
@@ -155,16 +153,16 @@ qemu-guest-agent
 PROXMOX_HOST="192.168.1.210"
 PROXMOX_NODE="rog"
 PROXMOX_VMID="999"
-PROXMOX_TOKEN="root@pam!pxe-boot=REPLACEWITHYOURTOKENSECRET"
+PROXMOX_TOKEN="root@pam!pxe-boot=4e58b002-d2f7-4aa1-a627-46724178642c"
 PROXMOX_BOOT_DISK="sata0"   # sata0, scsi0, virtio0 — match your VM disk type
-VM_USER="gamer"   # User must match what you changed it to!!
+VM_USER="gamer"
 # ----------------------------------------------------------------
 
 # --- Grant NOPASSWD sudo for the duration of %post ---
 # Scripts called from here need passwordless sudo.
 # Revoked at the end of this section.
-echo "${VM_USER} ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/ks-temp-nopasswd
-chmod 440 /etc/sudoers.d/ks-temp-nopasswd
+echo "${VM_USER} ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/vm-setup-nopasswd
+chmod 440 /etc/sudoers.d/vm-setup-nopasswd
 
 # --- Essential services ---
 systemctl enable sshd
@@ -200,36 +198,53 @@ cp -r /opt/fedora_to_cachyos "${USER_HOME}/fedora_to_cachyos"
 chown -R "${VM_USER}:${VM_USER}" "${USER_HOME}/fedora_to_cachyos"
 find "${USER_HOME}/fedora_to_cachyos" -name "*.sh" -exec chmod +x {} \;
 
-# --- Drop a start guide on first login ---
-cat > "${USER_HOME}/START-HERE.txt" << EOF
-================================================================
- Fedora Gaming VM — Post-Install
-================================================================
+# --- Install first-boot service to auto-launch master script ---
+# Runs script-master-niri.sh automatically on first boot without
+# requiring a login. Non-interactive mode auto-confirms all prompts.
+# Add Polkit rule for machinectl to run without prompting for password
 
-System installed successfully.
-
-Next steps:
-  cd ~/fedora_to_cachyos
-  bash script1-base.sh
-
-Scripts will guide you through:
-  1. CachyOS kernel install    (reboot required)
-  2. NVIDIA driver install     (reboot required)
-  3. Sunshine streaming setup  (reboot required)
-  4. Niri compositor
-  5. falcond performance daemon
-  6. Gaming apps (Steam, Heroic, MangoHud, Gamemode)
-
-SSH in as: ${VM_USER}@<vm-ip>
-================================================================
+cat > /etc/polkit-1/rules.d/20-machinectl-fast-user-auth.rules << EOF
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.machine1.host-shell" || 
+         action.id == "org.freedesktop.machine1.shell") &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+	if (action.id == "org.freedesktop.machine1.host-shell" && 
+    subject.isInGroup("wheel") && subject.local && subject.active) {
+    return polkit.Result.YES;
+	}
+});
 EOF
-chown "${VM_USER}:${VM_USER}" "${USER_HOME}/START-HERE.txt"
+
+cat > /etc/systemd/system/vm-first-boot.service << EOF
+[Unit]
+Description=VM First Boot Setup
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/home/${VM_USER}/fedora_to_cachyos/script-master-niri.sh
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/machinectl shell gamer@ /bin/bash -c /home/gamer/fedora_to_cachyos/script-master-niri.sh
+#ExecStart=/bin/bash /home/${VM_USER}/fedora_to_cachyos/script-master-niri.sh
+StandardOutput=journal
+StandardError=journal
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+#Persistant service to run script after boot
+ln -s /etc/systemd/system/vm-first-boot.service \
+    /etc/systemd/system/multi-user.target.wants/vm-first-boot.service
 
 # --- Flip Proxmox boot order to disk first ---
-# Done here before shutdown so the VM boots straight to the
+# Done here before reboot so the VM boots straight to the
 # installed OS on next start without touching the PXE menu.
 # Note: boot order value must be URL encoded — %3D is = and %3B is ;
-# Format: order=<disk>;<net> e.g. sata0;net0
 echo "Setting Proxmox boot order to disk first..."
 curl -sk \
     -X PUT \
@@ -239,16 +254,14 @@ curl -sk \
     && echo "Boot order updated successfully." \
     || echo "WARNING: Failed to update boot order. Change manually in Proxmox before starting VM."
 
-# --- Revoke temporary NOPASSWD sudo ---
-rm -f /etc/sudoers.d/ks-temp-nopasswd
-
 %end
 
 
 # ================================================================
-# SHUTDOWN AFTER INSTALL
+# REBOOT AFTER INSTALL
 # ================================================================
 # VM shuts down when install completes.
 # Boot order is already flipped to disk via the API call above.
-# Just start the VM in Proxmox when ready.
+# Cold start is needed for Proxmox to complete the boot order flip
+# The VM shoud be running and waiting for SSH tunnel to setup Sunshine
 shutdown
