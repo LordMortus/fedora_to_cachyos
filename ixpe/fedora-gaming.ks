@@ -11,21 +11,52 @@
 #   4. Add GPU passthrough device — set as Primary GPU from the start
 #   5. Add dummy HDMI dongle to GPU (so it has a display to present)
 #   6. Network adapter: VirtIO
-#   7. Enable QEMU Guest Agent in VM options
-#   8. Boot order: Network first, then disk
+#   7. Add VirtIO RNG device (required for entropy during UEFI PXE boot)
+#   8. Enable QEMU Guest Agent in VM options
+#   9. Boot order: Network first, then disk
 #
 # AFTER INSTALL:
 #   VM will shut down automatically when done.
-#   In Proxmox: change boot order back to disk first.
-#   Start VM, SSH in as gamer@<vm-ip>
+#   Proxmox will automatically update the boot order to disk first
+#   via the API call at the end of %post — no manual steps needed.
+#   Start VM, SSH in as the user defined below.
 #   Run: cd ~/fedora_to_cachyos && bash script1-base.sh
+#
+# HANDS-FREE:
+#   Username, password, hostname, VM ID, and Proxmox details are
+#   all defined in the USER CONFIGURATION section below.
 # ================================================================
+
+
+# ================================================================
+# USER CONFIGURATION
+# Change these before deploying
+# ================================================================
+
+# Username, password hash, and hostname are set in the directives below.
+# To generate a password hash:
+#   openssl passwd -6
+# (prompts interactively, nothing written to shell history)
+
+# Proxmox API — used to flip boot order to disk after install.
+# To create an API token:
+#   Proxmox Web UI -> Datacenter -> API Tokens -> Add
+#   User: root@pam
+#   Token ID: pxe-boot
+#   Uncheck "Privilege Separation"
+#   Copy the secret — it is only shown once.
+#
+# Set the three variables below:
+#   PROXMOX_HOST  — IP or hostname of your Proxmox node
+#   PROXMOX_NODE  — Node name shown in Proxmox web UI (top left)
+#   PROXMOX_VMID  — VM ID of this VM in Proxmox
+#   PROXMOX_TOKEN — root@pam!<tokenid>=<secret>
 
 
 # ================================================================
 # INSTALLATION SOURCE
 # ================================================================
-url --url=https://mirrors.kernel.org/fedora/releases/44/Everything/x86_64/os/
+url --mirrorlist=https://mirrors.fedoraproject.org/mirrorlist?repo=fedora-44&arch=x86_64
 
 
 # ================================================================
@@ -57,19 +88,27 @@ selinux --enforcing
 
 # ================================================================
 # USER ACCOUNT
-# NOTE: The user command MUST be a single line — no backslash
-# continuations. Dracut parses the kickstart before Anaconda and
-# does not support line continuation, causing "unrecognized
-# arguments" errors for every wrapped line.
 # ================================================================
-user --name=gamer --groups=wheel,video,render,input --password=<INSERT HAS HERE> --iscrypted --gecos="Gaming VM User"
+# Groups match what the setup scripts expect:
+#   wheel  — sudo access
+#   video  — GPU/DRM access
+#   render — GPU render node access
+#   input  — mouse/keyboard (required for Sunshine)
+#
+# NOTE: 'seat' group is created by seatd which isn't installed yet.
+# The %post section installs seatd first so the group exists
+# before usermod runs. See %post below.
+#
+# Password is a SHA-512 hash. Generate with: openssl passwd -6
+# Replace the hash below with your own.
+# The placeholder hash below is NOT valid — install will fail
+# if you don't replace it.
+#
+user --name=gamer --groups=wheel,video,render,input --password=$6$REPLACETHIS$REPLACETHISWITHYOURSHA512HASHHERE --iscrypted --gecos="Gaming VM User"
 
 
 # ================================================================
 # BOOTLOADER — UEFI
-# NOTE: Use --location=mbr even on UEFI systems. Using
-# --location=partition causes "GRUB2 does not support installation
-# to a partition" error.
 # ================================================================
 bootloader --location=mbr --boot-drive=sda
 
@@ -106,20 +145,42 @@ qemu-guest-agent
 # POST-INSTALL
 # ================================================================
 %post --log=/root/ks-post.log
-sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
-echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+
+# ----------------------------------------------------------------
+# CONFIGURATION — edit these to match your environment
+# ----------------------------------------------------------------
+PROXMOX_HOST="192.168.1.210"
+PROXMOX_NODE="rog"
+PROXMOX_VMID="999"
+PROXMOX_TOKEN="root@pam!pxe-boot=REPLACEWITHYOURTOKENSECRET"
+PROXMOX_BOOT_DISK="sata0"   # sata0, scsi0, virtio0 — match your VM disk type
+VM_USER="gamer"
+# ----------------------------------------------------------------
+
+# --- Grant NOPASSWD sudo for the duration of %post ---
+# Scripts called from here need passwordless sudo.
+# Revoked at the end of this section.
+echo "${VM_USER} ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/ks-temp-nopasswd
+chmod 440 /etc/sudoers.d/ks-temp-nopasswd
 
 # --- Essential services ---
 systemctl enable sshd
 systemctl enable qemu-guest-agent
 
+# --- Allow password SSH login ---
+# Fedora 44 defaults to PasswordAuthentication no
+echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+
 # --- Install seatd so seat group exists ---
+# Must happen before we try to add the user to the seat group.
+# seatd is required by Niri.
 dnf install -y seatd
 systemctl enable seatd
 groupadd seat 2>/dev/null || true
 
-# --- Add gamer to seat group ---
-usermod -aG seat gamer
+# --- Add user to seat group ---
+# The user was created by kickstart without seat (group didn't exist yet).
+usermod -aG seat "${VM_USER}"
 
 # --- Sudo access ---
 grep -q "^%wheel" /etc/sudoers || \
@@ -131,12 +192,13 @@ git clone https://github.com/LordMortus/fedora_to_cachyos.git \
 chmod +x /opt/fedora_to_cachyos/*.sh
 
 # --- Copy repo to user home ---
-cp -r /opt/fedora_to_cachyos /home/gamer/fedora_to_cachyos
-chown -R gamer:gamer /home/gamer/fedora_to_cachyos
-find /home/gamer/fedora_to_cachyos -name "*.sh" -exec chmod +x {} \;
+USER_HOME="/home/${VM_USER}"
+cp -r /opt/fedora_to_cachyos "${USER_HOME}/fedora_to_cachyos"
+chown -R "${VM_USER}:${VM_USER}" "${USER_HOME}/fedora_to_cachyos"
+find "${USER_HOME}/fedora_to_cachyos" -name "*.sh" -exec chmod +x {} \;
 
-# --- Drop start instructions ---
-cat > /home/gamer/START-HERE.txt << EOF
+# --- Drop a start guide on first login ---
+cat > "${USER_HOME}/START-HERE.txt" << EOF
 ================================================================
  Fedora Gaming VM — Post-Install
 ================================================================
@@ -155,10 +217,27 @@ Scripts will guide you through:
   5. falcond performance daemon
   6. Gaming apps (Steam, Heroic, MangoHud, Gamemode)
 
-SSH in as: gamer@<vm-ip>
+SSH in as: ${VM_USER}@<vm-ip>
 ================================================================
 EOF
-chown gamer:gamer /home/gamer/START-HERE.txt
+chown "${VM_USER}:${VM_USER}" "${USER_HOME}/START-HERE.txt"
+
+# --- Flip Proxmox boot order to disk first ---
+# Done here before shutdown so the VM boots straight to the
+# installed OS on next start without touching the PXE menu.
+# Note: boot order value must be URL encoded — %3D is = and %3B is ;
+# Format: order=<disk>;<net> e.g. sata0;net0
+echo "Setting Proxmox boot order to disk first..."
+curl -sk \
+    -X PUT \
+    "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${PROXMOX_VMID}/config" \
+    -H "Authorization: PVEAPIToken=${PROXMOX_TOKEN}" \
+    -d "boot=order%3D${PROXMOX_BOOT_DISK}%3Bnet0" \
+    && echo "Boot order updated successfully." \
+    || echo "WARNING: Failed to update boot order. Change manually in Proxmox before starting VM."
+
+# --- Revoke temporary NOPASSWD sudo ---
+rm -f /etc/sudoers.d/ks-temp-nopasswd
 
 %end
 
@@ -166,4 +245,7 @@ chown gamer:gamer /home/gamer/START-HERE.txt
 # ================================================================
 # SHUTDOWN AFTER INSTALL
 # ================================================================
+# VM shuts down when install completes.
+# Boot order is already flipped to disk via the API call above.
+# Just start the VM in Proxmox when ready.
 shutdown
