@@ -550,8 +550,9 @@ if [ "$STAGE" = "4" ]; then
     sudo cp -r falcond-profiles/usr/share/falcond/* /usr/share/falcond/
 
     sudo systemctl daemon-reload
-    sudo systemctl enable --now falcond
-
+    sudo systemctl enable falcond
+    sudo systemctl start falcond || true
+    
     set_stage 5
     echo ""
     echo "Stage 4 complete! No reboot needed, continuing to Stage 5..."
