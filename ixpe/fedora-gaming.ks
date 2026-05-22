@@ -103,7 +103,7 @@ selinux --enforcing
 # The placeholder hash below is NOT valid — install will fail
 # if you don't replace it.
 #
-user --name=gamer --groups=wheel,video,render,input --password=$6$Er/pyNao8mbu3yWQ$iLImHXmzc/f34IJ1zvkHOCkHepsxBssAN1zO9h2ZFpwNH6ekHv/eHQet9MRKRr0aFaSVKZbuInPerVpiWIwod0 --iscrypted --gecos="Gaming VM User"
+user --name=gamer --groups=wheel,video,render,input --password=<enter hash here> --iscrypted --gecos="Gaming VM User"
 
 
 # ================================================================
@@ -153,7 +153,7 @@ systemd-container
 PROXMOX_HOST="192.168.1.210"
 PROXMOX_NODE="rog"
 PROXMOX_VMID="999"
-PROXMOX_TOKEN="root@pam!pxe-boot=4e58b002-d2f7-4aa1-a627-46724178642c"
+PROXMOX_TOKEN="root@pam!pxe-boot=<enter token here>"
 PROXMOX_BOOT_DISK="sata0"   # sata0, scsi0, virtio0 — match your VM disk type
 VM_USER="gamer"
 # ----------------------------------------------------------------
