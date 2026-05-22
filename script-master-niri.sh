@@ -35,7 +35,7 @@ set_stage() {
 }
 
 # Detect if running interactively or from systemd service
-if [ -t 0 ]; then
+if [ -t 0 ] && [ -z "$VM_NONINTERACTIVE" ]; then
     INTERACTIVE=true
 else
     INTERACTIVE=false
