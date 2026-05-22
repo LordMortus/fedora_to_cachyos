@@ -690,6 +690,7 @@ if [ "$STAGE" = "5" ]; then
     sudo systemctl start falcond --no-block
 
     set_stage 6
+    STAGE=6  # update in-memory so stage 6 block triggers in this run
     echo ""
     echo "Stage 5 complete! No reboot needed, continuing to Stage 6..."
     echo ""
