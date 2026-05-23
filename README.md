@@ -77,7 +77,7 @@ streaming VM with minimal interaction.
    systemctl --user status app-dev.lizardbyte.app.Sunshine
    ```
 9. On your system that you plan to install monlight on, enable an
-   SSH tunnel in a command prompt: SSH -L 47990:<localhost>:47990 <user@vm-ip>
+   SSH tunnel in a command prompt: SSH -L 47990:<localhost>:47990 <user>@<vm-ip>
 10. Open a web browser to localhost:47990 and setup Sunshine
 11. Pair/Connect with Moonlight
 
