@@ -59,20 +59,27 @@ specific differences in stage 3 and no Niri stage.
 
 ## Automated Setup (Recommended)
 
-The fully automated path uses PXE boot and a kickstart file to go from
-empty disk to fully configured streaming VM with zero interaction.
+The fully automated path uses PXE boot (assumes you have a netboot.xyz
+server) and a kickstart file to go from empty disk to fully configured 
+streaming VM with minimal interaction.
 
 1. Set up PXE infrastructure (see `ixpe/` folder and `notes/`)
 2. Deploy `ixpe/fedora-gaming.ks` to your HTTP server
    - Fill in your password hash, Proxmox API token, VM ID
    - Generate password hash: `openssl passwd -6`
 3. Boot VM from network
-4. Walk away — come back in ~1 hour
-5. SSH in and confirm Sunshine is running:
+4. Select the fedora os from local installs - wait for VM to shutdown
+5. Change your VM hardware settings to use the gpu passthrough as primary
+    display, start VM (as stated in Before you start notes).
+6. Walk away — come back in ~1 hour
+8. SSH in and confirm Sunshine is running:
    ```
    systemctl --user status app-dev.lizardbyte.app.Sunshine
    ```
-6. Connect with Moonlight
+9. On your system that you plan to install monlight on, enable an
+   SSH tunnel in a command prompt: SSH -L 47990:<localhost>:47990 <user@vm-ip>
+10. Open a web browser to localhost:47990 and setup Sunshine
+11. Pair/Connect with Moonlight
 
 ---
 
