@@ -110,6 +110,8 @@ Run these in order. Each script tells you when a reboot is required.
   ssh -L 47990:localhost:47990 <user>@<vm-ip>
   ```
   Then open `https://localhost:47990` in your browser
+- File picker dialogs (e.g. attaching files in Firefox) work via the GTK portal
+  backend — this is configured automatically by `script-master-niri.sh`
 
 ---
 
@@ -130,6 +132,17 @@ to watch the stages tick over in real time.
 - **ProtonUp-Qt** — current Flathub build has a Qt version mismatch and won't launch.
   Upstream issue, not related to this setup. Check for Flathub updates or install
   Proton-GE manually into `~/.steam/root/compatibilitytools.d/`
+
+- **Firefox "Open Folder" in downloads bar does nothing** — clicking the folder icon
+  next to a download tries to open a file manager via `xdg-open inode/directory`.
+  No graphical file manager is installed by default in this minimal Niri setup.
+  Install one if needed: `sudo dnf install nautilus` (or `thunar` for something lighter).
+  Then set it as the default: `xdg-mime default org.gnome.Nautilus.desktop inode/directory`
+
+- **Resolution limited to 16:9** — dummy HDMI dongle only advertises standard
+  16:9 resolutions. Monitor is LG 29WK600-W (2560x1080 21:9 ultrawide).
+  Need a dongle that advertises 2560x1080 in its EDID.
+  Current workaround: Niri running at 1920x1080, stream pillarboxed on ultrawide.
 
 ---
 

@@ -152,7 +152,8 @@ show_stage_summary() {
             echo "  - Install PipeWire"
             echo "  - Install SDDM with autologin"
             echo "  - Install Niri from COPR"
-            echo "  - Install xdg-desktop-portal-gnome"
+            echo "  - Install xdg-desktop-portal-gnome and gtk backend"
+            echo "  - Configure portal FileChooser (fixes Firefox file picker)"
             echo "  - Wire Sunshine into the Niri session"
             echo ""
             echo " A reboot follows to start SDDM and Niri."
@@ -596,6 +597,18 @@ EOF
 
     systemctl --user daemon-reload
     echo "Sunshine wired into Niri session."
+
+    # xdg-desktop-portal GTK backend config
+    # Required for FileChooser to work in Firefox and other apps under Niri.
+    # Without this, portal delegates to xdg-desktop-portal-gnome which cannot
+    # activate without a full GNOME session, causing file picker dialogs to silently fail.
+    mkdir -p ~/.config/xdg-desktop-portal
+    cat > ~/.config/xdg-desktop-portal/portals.conf << 'EOF'
+[preferred]
+default=gtk
+org.freedesktop.impl.portal.FileChooser=gtk
+EOF
+    echo "xdg-desktop-portal GTK backend config written."
 
     set_stage 5
     echo ""
