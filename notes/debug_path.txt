@@ -1,120 +1,16 @@
 # Fedora 44 Gaming VM — Debug Path
 # All hurdles encountered and solutions found during development
-
-## 1. custom/custom.ipxe "Not Found" Error
-**Symptom:** netboot.xyz custom menu entry failing with file not found.
-**Cause:** iPXE chain path mismatch between netboot.xyz config and actual TrueNAS file location.
-**Solution:** Correct the path in the iPXE config to match the exact dataset mount path on TrueNAS.
+# Project: Fedora 44 + CachyOS kernel + NVIDIA passthrough + Sunshine + Niri
+# Final state: Fully operational (Niri path end-to-end via PXE + kickstart)
 
 ---
 
-## 2. Kickstart "unrecognized arguments" — user line continuations
-**Symptom:** Anaconda drops to debug shell. anaconda.log shows:
-  `ERR kickstart.parsing: unrecognized arguments`
-  `Unknown command: --groups=wheel,video,render,input`
-  `Unknown command: --password=...`
-  `Unknown command: --iscrypted`
-**Cause:** The `user` command was split across multiple lines using backslash continuations.
-  Dracut parses the kickstart before Anaconda and does not support line continuation.
-  Each continuation line is treated as a separate unknown command.
-**Solution:** Collapse the entire `user` command onto a single line. No exceptions.
-  Example:
-  `user --name=gamer --groups=wheel,video,render,input --password=$6$... --iscrypted --gecos="Gaming VM User"`
+## PXE INFRASTRUCTURE
 
----
-
-## 3. "GRUB2 does not support installation to a partition"
-**Symptom:** Install fails with GRUB error during bootloader setup.
-**Cause:** Kickstart had `bootloader --location=partition`
-**Solution:** Change to `bootloader --location=mbr --boot-drive=sda`
-  Note: `--location=mbr` is correct even on UEFI systems. Anaconda handles the ESP automatically.
-
----
-
-## 4. Kickstart logvol syntax error
-**Symptom:** Storage configuration fails in Anaconda.
-**Cause:** `logvol` command broken across multiple lines.
-**Solution:** Ensure logvol is a single flat line:
-  `logvol / --vgname=vg_root --name=root --fstype=ext4 --size=1 --grow`
-
----
-
-## 5. SSH "Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password)"
-**Symptom:** SSH login rejected after install despite correct password.
-**Cause:** Fedora 44 defaults to `PasswordAuthentication no` in sshd_config.
-**Solution:** Add to kickstart %post:
-  `echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config`
-
----
-
-## 6. Unknown password hash after install
-**Symptom:** Cannot SSH or console login — don't remember what password was hashed.
-**Cause:** Password hash generated during kickstart development, origin forgotten.
-**Solution:** 
-  - Boot into emergency/single user mode via GRUB (press `e`, add `single` to linux line)
-  - Remount root rw: `mount -o remount,rw /dev/mapper/vg_root-root /`
-  - Reset password: `passwd gamer`
-  - Generate new hash for kickstart: `openssl passwd -6` (prompts, no echo, no shell history)
-  - Note: Hash is independent of which user/system runs the command.
-
----
-
-## 7. Root filesystem mounted read-only in emergency shell
-**Symptom:** `passwd` returns "Authentication token manipulation error / password unchanged"
-**Cause:** Emergency shell mounts root read-only.
-**Solution:** `mount -o remount,rw /dev/mapper/vg_root-root /`
-  Verify with: `mount | grep "/ "` — should show `rw`
-
----
-
-## 8. Cannot reboot from initramfs/emergency shell
-**Symptom:** `reboot` and `poweroff` fail with "System has not been booted with systemd as init system"
-**Cause:** Systemd not running in minimal emergency shell environment.
-**Solution:** Force stop VM from Proxmox web UI (Stop, not Shutdown), then Start.
-  Alternative: `exec /sbin/init` or `/sbin/reboot -f`
-
----
-
-## 9. Niri compositor not detecting outputs (NVIDIA DRM ownership)
-**Symptom:** Niri starts but shows no outputs — NVIDIA driver claims DRM ownership.
-**Previous status:** Blocked in earlier Niri test VM (hostname: nirigamer)
-**Solution:** Resolved on fresh install with GPU set as Primary GPU from the start in Proxmox.
-  Key difference: GPU passthrough enabled before first boot, not added after.
-  Note: xdg-desktop-portal-gnome was being explored for screen capture at time of resolution.
-
----
-
-## 10. Anaconda debug shell not discovered until late
-**Symptom:** Install failures with no obvious way to inspect logs.
-**Discovery:** Anaconda drops to a shell on failure. Also:
-  - Shell available on TTY2
-  - In TMUX pane: `ctrl+b` then `2`
-  - Log files in `/tmp/anaconda/` — storage.log, packaging.log, program.log, anaconda.log
-  - Actual fetched kickstart at `/run/install/ks.cfg`
-**Useful commands:**
-  - `grep -i error /tmp/anaconda/*.log` — all errors across all logs
-  - `grep -n "part\|volgroup\|logvol\|bootloader" /run/install/ks.cfg` — storage config check
-  - `tail -50 /tmp/anaconda/program.log` — end of program log
-  - `less <file>` then `G` to jump to end
-
----
-
-## 11. VM console goes dark after GPU passthrough active
-**Symptom:** Proxmox console shows nothing once VM boots normally — GPU passthrough takes over display.
-**Cause:** GPU set as primary — output goes to physical GPU, not virtual console.
-**Impact:** No console access in normal boot. SSH is the only way in.
-**Workaround:** Emergency/single user mode still outputs to virtual console before GPU initializes.
-  Always confirm SSH access before rebooting into normal mode.
-**Related:** Dummy HDMI dongle only advertises standard 16:9 resolutions. On an ultrawide monitor
-  (LG 29WK600-W, 2560x1080) the stream will be pillarboxed. Fix requires an EDID dongle that
-  explicitly advertises 2560x1080 in its EDID table.
-
----
-
-## 12. GL.iNet router wipes PXE DHCP options on restart
-**Symptom:** PXE boot stops working after router restarts — DHCP no longer sends option 66/67.
-**Cause:** GL.iNet firmware overwrites LuCI/dnsmasq config on every restart. Any PXE options
-  set via the LuCI web UI are lost.
+### 1. GL.iNet router wipes PXE DHCP options on restart
+**Symptom:** PXE boot stops working after router restarts — DHCP no longer sends options 66/67.
+**Cause:** GL.iNet firmware overwrites the LuCI/dnsmasq config on every restart. Any PXE options
+  set via the web UI or `/etc/config/dhcp` are silently lost.
 **Solution:** Inject PXE options via `/etc/rc.local` instead, which survives reboots:
   ```
   mkdir -p /tmp/dnsmasq.d
@@ -122,38 +18,408 @@
   echo "dhcp-option=67,netboot.xyz.efi" >> /tmp/dnsmasq.d/pxe.conf
   ```
   The active dnsmasq config (`/var/etc/dnsmasq.conf.cfg01411c`) uses `conf-dir=/tmp/dnsmasq.d`
-  so files dropped there are picked up automatically.
+  so files dropped there are picked up automatically without restarting dnsmasq.
+  The `/etc/config/dhcp` `config boot` block still works but only if the firmware doesn't
+  wipe it — rc.local is more reliable.
 **Note:** Verify with Wireshark — DHCP offers should include server host name (option 66)
-  and boot file name (option 67).
+  and boot file name (option 67). The GL.iNet web UI cannot be trusted to show current state.
 
 ---
 
-## 13. OVMF UEFI VM does not register NIC as boot option
-**Symptom:** PXE boot works fine with SeaBIOS but OVMF (UEFI) VM never attempts network boot —
-  NIC does not appear in UEFI Boot Manager.
+### 2. GL.iNet DHCP config — typos causing silent failure
+**Symptom:** VM not getting TFTP server in DHCP offer despite config appearing correct.
+**Cause:** Typos in `/etc/config/dhcp`: `netboot.xyx.efi` (not .xyz) and `optoin` (not option).
+  dnsmasq silently ignores malformed options.
+**Solution:** Fix typos. Correct block:
+  ```
+  config boot
+      option filename 'netboot.xyz.efi'
+      option serveraddress '192.168.1.66'
+      option servername 'truesrv'
+      option force '1'
+  ```
+  Restart dnsmasq: `/etc/init.d/dnsmasq restart`
+  Confirm by watching DHCP traffic — the VM should receive 192.168.1.66 as TFTP server.
+
+---
+
+### 3. OVMF UEFI VM does not register NIC as a boot option
+**Symptom:** PXE boot works under SeaBIOS but under OVMF (UEFI) the NIC never appears
+  in the UEFI Boot Manager — VM always boots to EFI shell or disk.
 **Cause:** Proxmox 9.1 does not expose the `romfile` parameter in its qm schema, so there is
-  no supported way to attach an iPXE ROM to a NIC under OVMF. The NIC is visible to the OS
-  but OVMF never discovers it as a UEFI boot option.
+  no supported way to attach an iPXE ROM to a NIC under OVMF. The NIC functions normally
+  for the OS but OVMF never discovers it as a UEFI network boot device.
 **What was tried (all failed):**
-  - NIC models: VirtIO, Intel E1000, Intel E1000E
+  - NIC models: VirtIO, Intel E1000, Intel E1000E — none register in UEFI Boot Manager
   - Removing and recreating EFI disk (no pre-enrolled keys)
-  - `romfile=pxe-e1000.rom` — not supported in Proxmox 9.1 schema
+  - `romfile=pxe-e1000.rom` — not accepted by Proxmox 9.1 schema
   - `args: -option-rom /usr/share/kvm/pxe-e1000.rom` — no effect
-  - efibootmgr from Arch live ISO — EFI partition not accessible from inside VM
-  - OVMF NVRAM is a raw blob in qcow2 EFI disk, not directly editable
-**Workaround:** Use SeaBIOS (not OVMF) for PXE boot. SeaBIOS correctly presents the NIC
-  as `iPXE (PCI 06:12.0)` as boot option 1. Switch to OVMF only after install if UEFI boot
-  is required for the final system.
-**Alternative not yet tested:** Attach Fedora netinstall ISO as CD-ROM with `inst.ks=http://...`
-  passed as a kernel argument — bypasses PXE entirely for the initial install.
+  - efibootmgr from Arch live ISO — EFI partition not accessible from inside the VM
+  - OVMF NVRAM is stored as a raw blob in a qcow2 EFI disk — not directly editable
+**Workaround (current):** Use SeaBIOS for PXE boot. SeaBIOS correctly presents the NIC
+  as `iPXE (PCI 06:12.0)` as boot option 1. The kickstart installs a UEFI-correct system
+  (EFI partition, GRUB on ESP) even though PXE boot itself ran under SeaBIOS.
+**Note:** `/usr/share/kvm/pxe-e1000.rom` and `pxe-virtio.rom` exist on the Proxmox host —
+  the hardware is capable, the schema limitation is what blocks it.
 
 ---
 
-## General Lessons Learned
-- Always use `less` with `G` to jump to end of log files rather than `cat`
-- `grep -i error /tmp/anaconda/*.log` is the fastest triage command in Anaconda debug shell
-- Test SSH before rebooting out of any recovery shell
-- Generate password hashes with `openssl passwd -6` (interactive, no history)
-- Add comments in kickstart explaining non-obvious constraints (line continuations, bootloader location)
-- The Anaconda debug shell is your best friend — learn it early
-- VirtIO RNG device recommended for entropy during %post crypto operations
+### 4. netboot.xyz custom menu — "Not Found" on custom.ipxe
+**Symptom:** Selecting "Local Installs" from netboot.xyz menu returns "Not found".
+  File confirmed present on TrueNAS at the expected path.
+**Cause (part 1 — path prefix):** nginx inside the netboot.xyz container serves the host
+  path dataset at `/assets/` internally. URLs that include `/assets/` in the path cause
+  nginx to look for `/assets/assets/filename` and return 404.
+  ```
+  # nginx error log (inside container): /config/log/nginx/error.log
+  open() "/assets/assets/custom/custom.ipxe" failed
+  ```
+  Fix: Remove `/assets/` prefix from all URLs in iPXE scripts. nginx adds it.
+**Cause (part 2 — ixVolume vs host path):** Files created via the netboot.xyz Menus UI
+  are stored in ixVolume (app-managed TrueNAS storage). nginx only serves files from
+  the host path dataset (`/mnt/Apps-ISO/iPXE`). Any file created through the UI is not
+  accessible at the HTTP asset URL.
+  Fix: Create all custom files directly in the host path dataset via SMB, not through the UI.
+**Solution:** Place all custom iPXE files in `/mnt/Apps-ISO/iPXE/` on TrueNAS (accessible
+  via SMB). Reference them without the `/assets/` prefix in iPXE chain commands.
+  Correct chain URL format: `http://192.168.1.66:31011/custom/custom.ipxe`
+
+---
+
+### 5. Anaconda: inst.stage2 required for PXE installs
+**Symptom:** After kernel/initrd boot, dracut fails to find the installer with a 404 error.
+  Install never starts.
+**Cause:** Without `inst.stage2`, dracut tries to derive the installer image location from
+  the `inst.ks` URL or the mirrorlist, and fails. The mirrorlist returns a redirect that
+  dracut cannot follow.
+**Solution:** Always specify `inst.stage2` explicitly pointing at a direct mirror:
+  ```
+  inst.stage2=https://mirrors.kernel.org/fedora/releases/44/Everything/x86_64/os/
+  ```
+  mirrors.kernel.org is reliable and does not use bot-detection redirects.
+
+---
+
+## KICKSTART / ANACONDA
+
+### 6. Kickstart "unrecognized arguments" — user line continuations
+**Symptom:** Anaconda drops to debug shell. `anaconda.log` shows:
+  ```
+  ERR kickstart.parsing: unrecognized arguments
+  Unknown command: --groups=wheel,video,render,input
+  Unknown command: --password=...
+  Unknown command: --iscrypted
+  ```
+**Cause:** The `user` command was split across multiple lines using backslash continuations.
+  Dracut parses the kickstart before Anaconda and does not support line continuation.
+  Each continuation line is treated as a separate unknown command.
+**Solution:** Collapse the entire `user` command onto a single line. No exceptions.
+  ```
+  user --name=gamer --groups=wheel,video,render,input --password=$6$... --iscrypted --gecos="Gaming VM User"
+  ```
+
+---
+
+### 7. Kickstart logvol syntax error
+**Symptom:** Storage configuration fails in Anaconda with missing required arguments.
+**Cause:** `logvol` command broken across multiple lines with backslash continuation.
+  Anaconda does not handle continuation for this command correctly.
+**Solution:** Ensure logvol is a single flat line:
+  ```
+  logvol / --vgname=vg_root --name=root --fstype=ext4 --size=1 --grow
+  ```
+
+---
+
+### 8. "GRUB2 does not support installation to a partition"
+**Symptom:** Install fails with GRUB error during bootloader setup.
+**Cause:** Kickstart had `bootloader --location=partition`.
+**Solution:** Change to `bootloader --location=mbr --boot-drive=sda`.
+  Despite the name, `--location=mbr` is correct even on UEFI systems —
+  Anaconda handles the ESP automatically when EFI partitioning is specified.
+
+---
+
+### 9. SSH login rejected after kickstart install
+**Symptom:** `Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password)` despite
+  correct password. Password auth never prompted.
+**Cause:** Fedora 44 defaults to `PasswordAuthentication no` in sshd_config.
+**Solution:** Add to kickstart `%post`:
+  ```
+  echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+  ```
+
+---
+
+### 10. seat group missing when kickstart creates user
+**Symptom:** `usermod -aG seat gamer` fails in `%post` — group does not exist.
+**Cause:** The `seat` group is created by `seatd`. Niri requires seatd. But seatd isn't
+  installed at the time the `user` kickstart directive runs. The `user` directive cannot
+  include `seat` in its groups list because the group doesn't exist yet.
+**Solution:** In `%post`, install seatd first, create the group explicitly, then add the user:
+  ```
+  dnf install -y seatd
+  systemctl enable seatd
+  groupadd seat 2>/dev/null || true
+  usermod -aG seat "${VM_USER}"
+  ```
+  The `user` directive only specifies the groups that exist at install time
+  (wheel, video, render, input). seat is added separately in %post.
+
+---
+
+### 11. Unknown/forgotten password hash blocking install access
+**Symptom:** Cannot SSH or console login — the hash in the kickstart was generated earlier
+  and the original password is unknown.
+**Cause:** Password hash generated during development, origin forgotten.
+**Solution:**
+  - Boot into emergency/single user mode via GRUB (press `e` at boot menu, add `single` to linux line)
+  - Remount root read-write: `mount -o remount,rw /dev/mapper/vg_root-root /`
+  - Reset password: `passwd gamer`
+  - Generate a new hash for the kickstart: `openssl passwd -6`
+    (interactive prompt, no echo, nothing written to shell history)
+  - Note: The hash can be generated on any Linux system — it is not tied to the VM.
+
+---
+
+### 12. Root filesystem mounted read-only in emergency shell
+**Symptom:** `passwd` returns "Authentication token manipulation error / password unchanged".
+**Cause:** Emergency shell mounts root read-only by default.
+**Solution:** `mount -o remount,rw /dev/mapper/vg_root-root /`
+  Verify: `mount | grep "/ "` — should show `rw` in the options.
+
+---
+
+### 13. Cannot reboot from initramfs/emergency shell
+**Symptom:** `reboot` and `poweroff` return "System has not been booted with systemd as init system".
+**Cause:** systemd is not running in the minimal emergency shell environment.
+**Solution:** Force stop VM from Proxmox web UI (Stop, not Shutdown), then Start.
+  Alternative from within the shell: `/sbin/reboot -f`
+
+---
+
+### 14. Anaconda debug shell not discovered until late
+**Symptom:** Install failures with no obvious way to inspect what went wrong.
+**Discovery:** Anaconda drops to an interactive shell on failure. Key access points:
+  - TTY2: `ctrl+b` then `2` (in TMUX)
+  - Log files in `/tmp/anaconda/` — `storage.log`, `packaging.log`, `program.log`, `anaconda.log`
+  - Actual fetched kickstart (as received) at `/run/install/ks.cfg`
+**Useful triage commands:**
+  ```
+  grep -i error /tmp/anaconda/*.log          # all errors across all logs
+  grep -n "part\|volgroup\|logvol\|bootloader" /run/install/ks.cfg  # storage config check
+  tail -50 /tmp/anaconda/program.log         # most recent activity
+  less /tmp/anaconda/anaconda.log            # then G to jump to end
+  ```
+
+---
+
+## VM SETUP / SCRIPTS
+
+### 15. vm-first-boot.service stuck waiting for interactive input
+**Symptom:** Service starts, prints the stage list banner, then hangs indefinitely.
+  `journalctl -u vm-first-boot.service` shows the script printed the stage summary
+  and then went silent.
+**Cause:** `machinectl shell` provides a pseudo-TTY, so `[ -t 0 ]` returns true and
+  the script sets `INTERACTIVE=true`. It then waits at `confirm "Ready to begin setup?"`
+  for user input that never comes.
+**Solution:** Pass `VM_NONINTERACTIVE=1` or redirect stdin from `/dev/null`:
+  ```
+  ExecStart=/usr/bin/machinectl shell gamer@ /bin/bash -c \
+    'VM_NONINTERACTIVE=1 bash /home/gamer/fedora_to_cachyos/script-master-niri.sh'
+  ```
+  The master script checks `[ -z "$VM_NONINTERACTIVE" ]` as part of its interactivity
+  detection so this env var forces non-interactive mode regardless of TTY state.
+
+---
+
+### 16. machinectl shell requires polkit authentication when run from systemd
+**Symptom:** `machinectl shell gamer@` in a systemd service prompts for a password
+  and hangs — a service cannot respond to an interactive polkit prompt.
+**Cause:** The `org.freedesktop.machine1.host-shell` polkit action requires authentication
+  by default. A service running as root cannot satisfy a polkit prompt interactively.
+**Solution:** Add a polkit rule granting wheel group members passwordless access:
+  ```javascript
+  // /etc/polkit-1/rules.d/20-machinectl-fast-user-auth.rules
+  polkit.addRule(function(action, subject) {
+      if (action.id == "org.freedesktop.machine1.host-shell" &&
+          subject.isInGroup("wheel")) {
+          return polkit.Result.YES;
+      }
+  });
+  ```
+  Add this rule in kickstart `%post` so it is in place before the first boot service runs.
+
+---
+
+### 17. nouveau must be unloaded before NVIDIA installer runs
+**Symptom:** NVIDIA silent installer fails if nouveau is loaded.
+**Cause:** The installer cannot replace a running kernel module.
+**Note:** On a GPU passthrough VM, nouveau is usually not loaded at all — the GPU is
+  claimed by `vfio-pci` before the OS sees it. But on a standard VM or after adding
+  the GPU mid-session, nouveau may be active.
+**Solution:** Check and unload before running the installer:
+  ```bash
+  if lsmod | grep -q "^nouveau"; then
+      sudo modprobe -r nouveau
+  fi
+  ```
+  If `modprobe -r nouveau` fails, the module is in use by a display server.
+  Drop to `multi-user.target` first: `sudo systemctl isolate multi-user.target`
+
+---
+
+### 18. falcond build fails with hash mismatch
+**Symptom:** `zig build -Doptimize=ReleaseFast` exits with a hash mismatch error for
+  a fetched dependency.
+**Cause:** The hash in `build.zig.zon` is stale — the upstream dependency was updated
+  but the lockfile hash was not. Zig's package fetcher rejects the mismatch.
+**Solution:** Extract the correct hash from the error message and patch `build.zig.zon`:
+  ```bash
+  CORRECT_HASH=$(grep "but the fetched package has" ~/Downloads/falcond-build.log | \
+      grep -o '[A-Za-z0-9_$-]\{40,\}' | tail -1)
+  OLD_HASH=$(grep -o '[A-Za-z0-9_$-]\{40,\}' build.zig.zon | head -1)
+  sed -i "s/$OLD_HASH/$CORRECT_HASH/" build.zig.zon
+  ```
+  This is baked into `script4-falcond.sh` as an automatic fix.
+
+---
+
+### 19. Sunshine setcap lost after dnf upgrade
+**Symptom:** Sunshine streaming breaks after a system update — `cap_sys_admin` capability
+  is missing from the Sunshine binary. Error visible in Sunshine logs.
+**Cause:** `dnf upgrade` replaces the Sunshine binary, clearing any capabilities set with
+  `setcap`. The capability must be reapplied after every update.
+**Solution:** Install a DNF post-transaction action hook:
+  ```
+  # /etc/dnf/plugins/post-transaction-actions.d/sunshine.action
+  Sunshine:in:any:/usr/bin/sunshine:execute:sudo setcap cap_sys_admin+p $(readlink -f $(which sunshine))
+  ```
+  Requires `python3-dnf-plugin-post-transaction-actions` to be installed.
+  This is handled automatically by `script3-sunshine.sh`.
+
+---
+
+### 20. Sunshine web UI — config changes not saving (CSRF protection)
+**Symptom:** Changes made in the Sunshine web UI at `https://<vm-ip>:47990` appear to
+  save but are lost on refresh. No error is shown.
+**Cause:** Sunshine uses CSRF protection that only allows configuration writes from
+  `localhost`. Requests from any other origin are silently ignored.
+**Solution:** Use an SSH tunnel to access the web UI from localhost:
+  ```
+  ssh -L 47990:localhost:47990 gamer@<vm-ip>
+  ```
+  Then open `https://localhost:47990` in a local browser. Ignore the self-signed SSL warning.
+  Config changes save correctly from this origin.
+
+---
+
+## NIRI COMPOSITOR
+
+### 21. SDDM enabled but never starts — wrong default boot target
+**Symptom:** After installing SDDM and Niri, the VM boots to a text login prompt instead
+  of launching SDDM. `systemctl status sddm` shows it is enabled but was never started.
+**Cause:** Minimal Fedora installs default to `multi-user.target`. SDDM is in
+  `graphical.target` — it is enabled but that target is never reached.
+**Solution:**
+  ```bash
+  sudo systemctl set-default graphical.target
+  ```
+  This must be set before rebooting into SDDM for the first time.
+  It is included in `script-niri.sh` and `script-master-niri.sh` Stage 4.
+
+---
+
+### 22. SDDM theme not found — "01-breeze-fedora" error
+**Symptom:** SDDM logs show theme error. Login may be slower or fall back to basic display.
+**Cause:** The breeze theme is a KDE component. On a minimal/non-KDE install it is not present.
+  If the SDDM config references it explicitly, SDDM logs an error on every start.
+**Solution:** Explicitly set the theme to `default` in the autologin config:
+  ```ini
+  [Theme]
+  Current=default
+  ```
+  This is a cosmetic issue — SDDM still works — but cleaning it up prevents log noise.
+
+---
+
+### 23. Niri black screen — bochs-drm device confusing compositor output
+**Symptom:** Moonlight connects successfully but shows a black screen. Niri is running
+  (visible in `nvidia-smi` process list, GPU memory allocated). No compositor output
+  visible through the stream.
+**Cause:** With both the NVIDIA GPU (card0) and the Proxmox virtual display (bochs-drm, card1)
+  present in `/dev/dri/`, Niri's DRM device enumeration targeted card1 (bochs) as the
+  primary backend and repeatedly failed to open it. Despite `WLR_DRM_DEVICES` pointing
+  at card0 in the Niri config, card1 was still being probed.
+  `journalctl --user -u niri.service` showed a continuous loop:
+  ```
+  WARN niri::backend::tty: error creating renderer for primary GPU:
+  Error::NoDevice(DrmNode { dev: 57857, ty: Primary })
+  ```
+  Device 57857 = card1 = bochs-drm (PCI ID 1234:1111, Proxmox QEMU stdvga).
+**Solution:** Remove the Proxmox display device entirely from VM hardware.
+  Proxmox Web UI → VM → Hardware → Display → Remove.
+  After reboot, only card0 (NVIDIA) is present. Niri starts cleanly.
+**Verification:** `nvidia-smi` should show `Disp.A = On` (dummy HDMI dongle active)
+  and Niri in the process list with GPU memory allocated.
+**Note:** `WLR_DRM_DEVICES="/dev/dri/card0"` in the Niri environment block is not
+  sufficient on its own when bochs-drm is present — remove the device entirely.
+
+---
+
+### 24. Proxmox display must be removed BEFORE first boot, not after
+**Symptom:** On a test VM (nirigamer), Niri could not be fixed post-install even after
+  removing the Proxmox display device. A fresh install with the display already removed
+  resolved it cleanly.
+**Cause / finding:** The GPU must be set as Primary GPU from the initial VM creation.
+  Adding passthrough mid-session or removing the virtual display after install may leave
+  stale device state.
+**Solution:** In Proxmox VM hardware: set GPU passthrough as Primary GPU before first boot.
+  Remove the default Display device entirely before starting the VM for the first time.
+  The kickstart instructions in `fedora-gaming.ks` reflect this.
+
+---
+
+### 25. Niri xdg-desktop-portal FileChooser silently fails (Firefox "Open Folder" broken)
+**Symptom:** File picker dialogs in Firefox and other GTK apps do nothing — no dialog
+  appears. "Open Folder" in the Firefox downloads bar has no effect.
+**Cause:** Without explicit portal backend configuration, `xdg-desktop-portal` delegates
+  to `xdg-desktop-portal-gnome`, which cannot activate without a full GNOME session.
+  The request is silently dropped.
+**Solution:** Create a portal backend config that explicitly routes to the GTK backend:
+  ```ini
+  # ~/.config/xdg-desktop-portal/portals.conf
+  [preferred]
+  default=gtk
+  org.freedesktop.impl.portal.FileChooser=gtk
+  ```
+  Requires `xdg-desktop-portal-gtk` to be installed. This is handled in
+  `script-master-niri.sh` Stage 4.
+
+---
+
+## GENERAL LESSONS LEARNED
+
+- **less + G is the correct way to read logs** — `cat` on a long log file is useless.
+  `less <file>` then `G` jumps to the end. `q` to quit.
+- **`grep -i error /tmp/anaconda/*.log`** is the fastest Anaconda triage command.
+- **Test SSH before rebooting** out of any recovery shell. Once the Proxmox console goes
+  dark (GPU passthrough active), SSH is the only way in.
+- **Generate password hashes with `openssl passwd -6`** — interactive, nothing written
+  to shell history, works on any Linux system.
+- **Kickstart line continuations are unreliable** — `user` and `logvol` must be single lines.
+  Other commands may also misbehave. When in doubt, flatten it.
+- **The Anaconda debug shell is your best friend** — learn it before you need it.
+  It is available on TTY2 even when the install appears frozen.
+- **nginx error log inside netboot.xyz container** is at `/config/log/nginx/error.log`,
+  not the standard `/var/log/nginx/error.log`.
+- **VirtIO RNG device** is recommended for Proxmox VMs that run crypto operations
+  in `%post` — prevents entropy starvation during hash generation.
+- **Two DRM card nodes in /dev/dri/ on a passthrough VM** is a red flag — one is the
+  real GPU, one is the Proxmox virtual display. Wayland compositors may pick the wrong one.
+  The fix is to remove the virtual display device entirely, not to configure around it.
+- **`nvidia-smi` process list** is a useful triage tool — seeing Niri in it with GPU memory
+  allocated confirms the driver is healthy even if the compositor output is broken.
+- **Proxmox boot order flip via API** in kickstart `%post` saves a manual step — the VM
+  boots straight to the installed OS on next start without touching the PXE menu.
+  Uses the Proxmox REST API with a pre-created API token.
